@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Products · Skin Index{% endblock %}
+
+{% block content %}
+<section class="products-page">
+    <h1 class="page-title">Products</h1>
+
+    <form class="filter-bar" method="get" action="{{ url_for('products') }}">
+        <input class="form-input filter-search" type="search" name="q" value="{{ q }}"
+               placeholder="Search by product or brand" aria-label="Search products">
+        <select class="form-input" name="category" aria-label="Category">
+            <option value="">All categories</option>
+            {% for c in categories %}
+            <option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+        </select>
+        <select class="form-input" name="sort" aria-label="Sort by">
+            {% for key, label in sort_options.items() %}
+            <option value="{{ key }}" {% if key == sort %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn-primary" type="submit">Search</button>
+        {% if q or category or sort != 'name' %}
+        <a class="btn-ghost" href="{{ url_for('products') }}">Clear</a>
+        {% endif %}
+    </form>
+
+    {% if products %}
+    <p class="results-count">{{ total }} product{{ '' if total == 1 else 's' }} · page {{ page }} of {{ pages }}</p>
+
+    <div class="table-wrap">
+        <table class="product-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Brand</th>
+                    <th>Category</th>
+                    <th class="num">Price</th>
+                    <th>Size</th>
+                    <th class="num">Price per ml</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in products %}
+                <tr>
+                    <td><a class="product-link" href="{{ url_for('product_detail', id=p['id']) }}">{{ p['name'] }}</a></td>
+                    <td>{{ p['brand'] }}</td>
+                    <td>{{ p['category'] or '—' }}</td>
+                    <td class="num">${{ '%.2f' | format(p['price']) }}</td>
+                    <td>{{ p['size_text'] }}</td>
+                    <td class="num">${{ '%.3f' | format(p['price_per_ml']) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <nav class="pagination" aria-label="Pagination">
+        {% if prev_url %}
+        <a class="btn-ghost" href="{{ prev_url }}" rel="prev">&larr; Previous</a>
+        {% else %}
+        <span class="btn-ghost disabled">&larr; Previous</span>
+        {% endif %}
+        <span class="page-status">Page {{ page }} of {{ pages }}</span>
+        {% if next_url %}
+        <a class="btn-ghost" href="{{ next_url }}" rel="next">Next &rarr;</a>
+        {% else %}
+        <span class="btn-ghost disabled">Next &rarr;</span>
+        {% endif %}
+    </nav>
+    {% else %}
+    <div class="empty-state">
+        <p>No products found.</p>
+        <p class="empty-hint">Try a different search or clear the filters.</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

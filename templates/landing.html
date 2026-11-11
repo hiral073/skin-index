@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Skin Index — Understand What Is in Your Skincare{% endblock %}
+
+{% block content %}
+
+<section class="hero">
+    <div class="hero-inner">
+        <div class="hero-badge">Skincare Product Intelligence</div>
+        <h1 class="hero-title">
+            Know what is in<br>
+            <em>your skincare</em>
+        </h1>
+        <p class="hero-subtitle">
+            Look up a product, see its ingredients and price per ml,
+            and compare it with others, all in one place.
+        </p>
+        <div class="hero-actions">
+            <a href="{{ url_for('products') }}" class="btn-primary">Search products</a>
+            <a href="{{ url_for('compare') }}" class="btn-ghost">Compare two products</a>
+        </div>
+    </div>
+    <div class="hero-visual">
+        <div class="mock-card">
+            <div class="mock-card-header">
+                <span class="mock-label">Price per ml · sample</span>
+                <span class="mock-total">By brand</span>
+            </div>
+            <div class="mock-bars">
+                <div class="mock-bar-row">
+                    <span class="mock-cat">Brand D</span>
+                    <div class="mock-bar-track">
+                        <div class="mock-bar" style="width: 90%"></div>
+                    </div>
+                    <span class="mock-amt">31.00</span>
+                </div>
+                <div class="mock-bar-row">
+                    <span class="mock-cat">Brand B</span>
+                    <div class="mock-bar-track">
+                        <div class="mock-bar mock-bar-2" style="width: 71%"></div>
+                    </div>
+                    <span class="mock-amt">24.50</span>
+                </div>
+                <div class="mock-bar-row">
+                    <span class="mock-cat">Brand A</span>
+                    <div class="mock-bar-track">
+                        <div class="mock-bar mock-bar-3" style="width: 52%"></div>
+                    </div>
+                    <span class="mock-amt">17.98</span>
+                </div>
+                <div class="mock-bar-row">
+                    <span class="mock-cat">Brand C</span>
+                    <div class="mock-bar-track">
+                        <div class="mock-bar mock-bar-4" style="width: 35%"></div>
+                    </div>
+                    <span class="mock-amt">12.10</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="features">
+    <div class="features-inner">
+        <div class="feature-card">
+            <div class="feature-icon">⌕</div>
+            <h3 class="feature-title">Search any product</h3>
+            <p class="feature-body">Find a product by name or ingredient and see its full ingredient list, price and size in one page.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">⇄</div>
+            <h3 class="feature-title">Compare side by side</h3>
+            <p class="feature-body">Line up two products on price per ml and see which ingredients they share and which are unique.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">◎</div>
+            <h3 class="feature-title">See the bigger picture</h3>
+            <p class="feature-body">Check how brands compare on price and which ingredients show up most often across products.</p>
+        </div>
+    </div>
+</section>
+
+<section class="cta-section">
+    <div class="cta-inner">
+        <h2 class="cta-title">Ready to look closer?</h2>
+        <p class="cta-body">Pick a product and see what is really inside.</p>
+        <a href="{{ url_for('products') }}" class="btn-primary">Start exploring</a>
+    </div>
+</section>
+
+{% endblock %}

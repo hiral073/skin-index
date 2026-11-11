@@ -1,0 +1,12 @@
+venv/
+.venv/
+skin_index.db
+data/*.csv
+data/*.parquet
+__pycache__/
+*.pyc
+*.pyo
+.env
+.DS_Store
+.pytest_cache/
+.claude/plans/
