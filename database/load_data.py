@@ -14,6 +14,7 @@ CSV_PATH = os.path.join(BASE_DIR, "data", "product_info.csv")
 COLUMNS = [
     "product_name", "brand_name", "primary_category", "secondary_category",
     "tertiary_category", "price_usd", "size", "ingredients",
+    "loves_count", "rating", "reviews",
 ]
 
 ML_PER_FL_OZ = 29.5735
@@ -169,6 +170,20 @@ def parse_ingredients(value, extract_strength=False):
     return items, events
 
 
+def whole_number(value):
+    """A count (loves, reviews) as an int, or None when it is missing."""
+    if value is None or pd.isna(value):
+        return None
+    return int(value)
+
+
+def decimal_number(value):
+    """A rating as a float, or None when it is missing."""
+    if value is None or pd.isna(value):
+        return None
+    return float(value)
+
+
 def clean_level(value):
     """A category level as text, or None when it is missing or blank."""
     if value is None or pd.isna(value):
@@ -298,6 +313,9 @@ def clean_products(df, report=None):
             "category": None if pd.isna(row.secondary_category) else row.secondary_category,
             "compare_group": group,
             "group_level": group_level,
+            "loves_count": whole_number(getattr(row, "loves_count", None)),
+            "rating": decimal_number(getattr(row, "rating", None)),
+            "reviews": whole_number(getattr(row, "reviews", None)),
             "price": float(row.price_usd),
             "size_text": row.size,
             "size_ml": size_ml,
@@ -320,11 +338,12 @@ def load_products(products, db_path=None):
         for p in products:
             cur = conn.execute(
                 "INSERT INTO products (name, brand, category, price, size_text,"
-                " size_ml, price_per_ml, ingredients_text, compare_group)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " size_ml, price_per_ml, ingredients_text, compare_group,"
+                " loves_count, rating, reviews)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (p["name"], p["brand"], p["category"], p["price"], p["size_text"],
                  p["size_ml"], p["price_per_ml"], ", ".join(p["ingredients"]),
-                 p.get("compare_group")),
+                 p.get("compare_group"), p.get("loves_count"), p.get("rating"), p.get("reviews")),
             )
             percents = p.get("stated_percents") or [None] * len(p["ingredients"])
             for position, (name, percent) in enumerate(zip(p["ingredients"], percents), start=1):
@@ -408,6 +427,17 @@ def print_group_report(products):
     print(f"  groups renamed with their second level: {', '.join(renamed) or 'none'}")
 
 
+def print_popularity_report(products):
+    print("\nShopper engagement from the retailer's site (loves, rating, reviews; blank stays empty):")
+    print(f"  {'products':<40} {len(products):>6}")
+    for field in ("loves_count", "rating", "reviews"):
+        values = [p[field] for p in products if p.get(field) is not None]
+        span = f"{min(values):g} to {max(values):g}" if values else "no values"
+        print(f"  {field + ' filled':<40} {len(values):>6}   range {span}")
+    print(f"  {'products missing rating and reviews':<40} "
+          f"{sum(1 for p in products if p.get('rating') is None and p.get('reviews') is None):>6}")
+
+
 def main(csv_path=None, db_path=None):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")  # product names are not all console-safe
@@ -429,6 +459,7 @@ def main(csv_path=None, db_path=None):
         print(f"  {table:<40} {n:>6}")
     print_strength_report(report, products, before, counts)
     print_group_report(products)
+    print_popularity_report(products)
     return counts
 
 

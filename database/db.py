@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS products (
     size_ml          REAL,
     price_per_ml     REAL,
     ingredients_text TEXT,
-    compare_group    TEXT
+    compare_group    TEXT,
+    loves_count      INTEGER,
+    rating           REAL,
+    reviews          INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
@@ -90,6 +93,10 @@ ADDED_COLUMNS = [
     ("product_ingredients", "stated_percent",
      "REAL CHECK (stated_percent IS NULL OR (stated_percent > 0 AND stated_percent < 100))"),
     ("products", "compare_group", "TEXT"),
+    # shopper engagement on the retailer's site (loves, average rating, number of reviews)
+    ("products", "loves_count", "INTEGER"),
+    ("products", "rating", "REAL"),
+    ("products", "reviews", "INTEGER"),
 ]
 
 

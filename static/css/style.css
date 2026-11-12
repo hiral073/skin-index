@@ -648,6 +648,82 @@ a { color: inherit; text-decoration: none; }
 
 .not-found-action { margin-top: 1.5rem; }
 
+/* Insights */
+
+.insights-page {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 3rem 2rem 4rem;
+}
+
+.insights-page .filter-bar { margin-bottom: 1rem; }
+.insights-page .filter-bar .form-input { min-width: 240px; }
+
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.tile {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+}
+
+.tile-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: 0.25rem;
+}
+
+.tile-value { font-family: var(--font-display); font-size: 1.5rem; color: var(--ink); }
+.tile-sub { font-size: 0.8rem; color: var(--ink-muted); }
+.inr { font-size: 0.8em; color: var(--ink-muted); }
+
+.chart-legend, .chart-note { font-size: 0.85rem; color: var(--ink-muted); margin: 0.5rem 0 1rem; }
+
+.bar-chart {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1.25rem;
+}
+
+.bar-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(120px, 2fr) minmax(170px, 1.4fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.bar-row:last-child { border-bottom: none; }
+.bar-label { font-size: 0.9rem; font-weight: 500; }
+.bar-n { font-size: 0.8rem; font-weight: 400; color: var(--ink-muted); }
+.bar-value { font-size: 0.9rem; }
+.bar-fill {
+    height: 100%;
+    min-width: 3px;
+    background: var(--accent);
+    border-radius: 999px;
+}
+
+.takeaways, .how-to-read { padding-left: 1.25rem; }
+.takeaways li, .how-to-read li { padding: 0.2rem 0; }
+
+.product-table td .bar-track { margin-top: 4px; min-width: 90px; }
+
+@media (max-width: 900px) {
+    .bar-row { grid-template-columns: 1fr; gap: 0.25rem; }
+}
+
 /* Compare */
 
 .compare-page {

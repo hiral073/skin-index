@@ -277,6 +277,210 @@ def _compare_ingredients(a_rows, b_rows):
     }
 
 
+# ------------------------------------------------------------------ #
+# Insights                                                            #
+# ------------------------------------------------------------------ #
+
+# Every threshold the Insights page uses, in one place; the page states them
+INSIGHTS_CONFIG = {
+    "min_group_products": 5,          # a group needs this many products to be offered
+    "top_n": 10,                      # length of the brand, product, well-reviewed and ingredient lists
+    "well_reviewed_min_reviews": 50,  # well-reviewed list: at least this many reviews...
+    "well_reviewed_min_rating": 4.0,  # ...and a rating of at least this
+    "band_min_reviews": 10,           # price bands: a product needs this many reviews to count
+    "band_min_products": 9,           # price bands: a group needs this many such products (3 per band)
+}
+BAND_LABELS = ("lower", "middle", "higher")
+
+
+def weighted_rating(pairs):
+    """Review-weighted average rating: sum(rating * reviews) / sum(reviews).
+
+    `pairs` are (rating, reviews). A product missing either value, or with no reviews,
+    is skipped; None when nothing is left.
+    """
+    usable = [(rating, reviews) for rating, reviews in pairs if rating is not None and reviews]
+    total = sum(reviews for _, reviews in usable)
+    return sum(rating * reviews for rating, reviews in usable) / total if total else None
+
+
+def _ingredient_summary(conn, group=None):
+    """Top ingredients by share of products, with Water counted apart from the ranking.
+
+    Counts products in the group (all products when group is None) that have an
+    ingredient list; share_percent is the share of those products.
+    """
+    scope = {"group": group}
+    total = conn.execute(
+        "SELECT COUNT(DISTINCT pi.product_id) FROM product_ingredients pi"
+        " JOIN products p ON p.id = pi.product_id"
+        " WHERE (:group IS NULL OR p.compare_group = :group)",
+        scope,
+    ).fetchone()[0]
+    ranked = conn.execute(
+        "SELECT i.name, COUNT(DISTINCT pi.product_id) AS products FROM product_ingredients pi"
+        " JOIN ingredients i ON i.id = pi.ingredient_id JOIN products p ON p.id = pi.product_id"
+        " WHERE (:group IS NULL OR p.compare_group = :group) AND LOWER(i.name) != 'water'"
+        " GROUP BY i.id ORDER BY products DESC, i.name COLLATE NOCASE LIMIT :limit",
+        {**scope, "limit": INSIGHTS_CONFIG["top_n"]},
+    ).fetchall()
+    water = conn.execute(
+        "SELECT COUNT(DISTINCT pi.product_id) FROM product_ingredients pi"
+        " JOIN ingredients i ON i.id = pi.ingredient_id JOIN products p ON p.id = pi.product_id"
+        " WHERE (:group IS NULL OR p.compare_group = :group) AND LOWER(i.name) = 'water'",
+        scope,
+    ).fetchone()[0]
+
+    def share(count):
+        return count / total * 100 if total else None
+
+    return {
+        "products": total,
+        "top": [{"name": r["name"], "products": r["products"], "share_percent": share(r["products"])}
+                for r in ranked],
+        "water": {"products": water, "share_percent": share(water)},
+    }
+
+
+def _price_bands(products):
+    """Three equal-size bands (lower, middle, higher price per ml) with their weighted rating.
+
+    `products` already have a price per ml, a rating and enough reviews. With a remainder
+    the lower bands get the extra product first; equal prices are ordered by id.
+    """
+    config = INSIGHTS_CONFIG
+    ordered = sorted(products, key=lambda p: (p["price_per_ml"], p["id"]))
+    if len(ordered) < config["band_min_products"]:
+        return {"enough": False, "eligible_products": len(ordered), "bands": []}
+    base, extra = divmod(len(ordered), 3)
+    bands, start = [], 0
+    for index, label in enumerate(BAND_LABELS):
+        size = base + (1 if index < extra else 0)
+        chunk = ordered[start:start + size]
+        start += size
+        bands.append({
+            "label": label, "products": len(chunk),
+            "reviews": sum(p["reviews"] for p in chunk),
+            "average_rating": weighted_rating((p["rating"], p["reviews"]) for p in chunk),
+        })
+    return {"enough": True, "eligible_products": len(ordered), "bands": bands}
+
+
+def get_insights(group=None, db_path=None):
+    """Numbers for the Insights page; plain data only (no formatting, HTML or currency).
+
+    Popularity is shopper engagement from one retailer's site (loves, ratings, reviews),
+    not sales. Prices are USD. Ties are broken by name. A product missing a value a
+    section needs is skipped by that section, never counted as zero.
+
+    Returns {"config", "requested_group", "group_status", "scope_group", "overview",
+    "selector_groups", "brands", "loved_products", "well_reviewed", "price_bands",
+    "ingredients"}:
+    - config: INSIGHTS_CONFIG (the thresholds used).
+    - group_status: "none" (no group asked for), "ok", or "unavailable" (unknown group,
+      or fewer products than the minimum); scope_group is the group when "ok", else None.
+    - overview: {"products", "brands", "groups", "ungrouped_products"} over all products.
+    - selector_groups: [{"name", "products"}] by name, groups with enough products.
+    - brands (always overall): top brands by total loves, [{"brand", "loves", "products",
+      "average_rating", "rated_reviews"}]; average_rating is review-weighted.
+    - loved_products: top products by loves, overall or within the group: [{"id", "name",
+      "brand", "price", "size_text", "loves_count", "rating", "reviews"}].
+    - well_reviewed (group only, else None): {"qualifying_products", "products": [{"id",
+      "name", "brand", "price", "price_per_ml", "rating", "reviews"}]}, products with
+      enough reviews and a high enough rating, lowest price per ml first.
+    - price_bands (group only, else None): {"enough", "eligible_products", "bands": [{"label",
+      "products", "reviews", "average_rating"}]} for products with a price per ml and
+      enough reviews.
+    - ingredients: {"products", "top": [{"name", "products", "share_percent"}], "water":
+      {"products", "share_percent"}}, overall or within the group.
+    """
+    config = INSIGHTS_CONFIG
+    init_db(db_path)
+    with closing(get_db(db_path)) as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, name, brand, price, size_text, price_per_ml, compare_group,"
+            " loves_count, rating, reviews FROM products"
+        )]
+        group_sizes = {}
+        for row in rows:
+            if row["compare_group"] is not None:
+                group_sizes[row["compare_group"]] = group_sizes.get(row["compare_group"], 0) + 1
+        selector = sorted(
+            ({"name": name, "products": n} for name, n in group_sizes.items()
+             if n >= config["min_group_products"]),
+            key=lambda g: g["name"].casefold(),
+        )
+        status = "none"
+        if group is not None:
+            status = "ok" if any(g["name"] == group for g in selector) else "unavailable"
+        scope_group = group if status == "ok" else None
+        scope = [r for r in rows if r["compare_group"] == scope_group] if scope_group else rows
+        ingredients = _ingredient_summary(conn, scope_group)
+
+    # brands, always over every product
+    by_brand = {}
+    for row in rows:
+        by_brand.setdefault(row["brand"], []).append(row)
+    brands = []
+    for brand, items in by_brand.items():
+        loves = [r["loves_count"] for r in items if r["loves_count"] is not None]
+        if not loves:
+            continue
+        brands.append({
+            "brand": brand, "loves": sum(loves), "products": len(items),
+            "average_rating": weighted_rating((r["rating"], r["reviews"]) for r in items),
+            "rated_reviews": sum(r["reviews"] for r in items if r["rating"] is not None and r["reviews"]),
+        })
+    brands.sort(key=lambda b: (-b["loves"], b["brand"].casefold()))
+
+    loved = sorted((r for r in scope if r["loves_count"] is not None),
+                   key=lambda r: (-r["loves_count"], r["name"].casefold(), r["id"]))
+    loved_products = [
+        {key: r[key] for key in ("id", "name", "brand", "price", "size_text", "loves_count", "rating", "reviews")}
+        for r in loved[:config["top_n"]]
+    ]
+
+    well_reviewed = price_bands = None
+    if scope_group:
+        qualifying = sorted(
+            (r for r in scope if r["price_per_ml"] is not None and r["rating"] is not None
+             and r["reviews"] is not None
+             and r["reviews"] >= config["well_reviewed_min_reviews"]
+             and r["rating"] >= config["well_reviewed_min_rating"]),
+            key=lambda r: (r["price_per_ml"], r["name"].casefold(), r["id"]),
+        )
+        well_reviewed = {
+            "qualifying_products": len(qualifying),
+            "products": [
+                {key: r[key] for key in ("id", "name", "brand", "price", "price_per_ml", "rating", "reviews")}
+                for r in qualifying[:config["top_n"]]
+            ],
+        }
+        price_bands = _price_bands([
+            r for r in scope if r["price_per_ml"] is not None and r["rating"] is not None
+            and r["reviews"] is not None and r["reviews"] >= config["band_min_reviews"]
+        ])
+
+    return {
+        "config": dict(config),
+        "requested_group": group,
+        "group_status": status,
+        "scope_group": scope_group,
+        "overview": {
+            "products": len(rows),
+            "brands": len(by_brand),
+            "groups": len(group_sizes),
+            "ungrouped_products": sum(1 for r in rows if r["compare_group"] is None),
+        },
+        "selector_groups": selector,
+        "brands": brands[:config["top_n"]],
+        "loved_products": loved_products,
+        "well_reviewed": well_reviewed,
+        "price_bands": price_bands,
+        "ingredients": ingredients,
+    }
+
+
 def inr_price(price_usd, rate):
     """USD price to whole rupees, halves rounded up; None if either input is missing."""
     if price_usd is None or rate is None:

@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}Insights · Skin Index{% endblock %}
+
+{% macro not_enough() %}<p class="picker-hint">Not enough data.</p>{% endmacro %}
+
+{% macro na() %}<span class="not-available">Not available</span>{% endmacro %}
+
+{# a horizontal bar whose width is a percentage of the largest value on its chart #}
+{% macro bar(percent) %}<div class="bar-track" aria-hidden="true"><div class="bar-fill" style="width: {{ '%.1f' | format(percent) }}%"></div></div>{% endmacro %}
+
+{# $12.00 (≈ ₹1,124): USD price, with whole rupees when there is a rate #}
+{% macro usd_inr(usd, inr) %}{% if usd is not none %}${{ '%.2f' | format(usd) }}{% if inr is not none %} <span class="inr">(≈ ₹{{ '{:,}'.format(inr) }})</span>{% endif %}{% else %}{{ na() }}{% endif %}{% endmacro %}
+
+{% macro per_ml(usd, inr) %}{% if usd is not none %}${{ '%.3f' | format(usd) }}{% if inr is not none %} <span class="inr">(≈ ₹{{ '{:,.2f}'.format(inr) }})</span>{% endif %}{% else %}{{ na() }}{% endif %}{% endmacro %}
+
+{% macro rating_text(rating, reviews) %}{% if rating is not none and reviews is not none %}{{ '%.2f' | format(rating) }} from {{ '{:,}'.format(reviews) }} review{{ '' if reviews == 1 else 's' }}{% else %}{{ na() }}{% endif %}{% endmacro %}
+
+{% macro ingredient_chart(summary) %}
+{% if summary.top %}
+<div class="bar-chart">
+    {% for i in summary.top %}
+    <div class="bar-row">
+        <div class="bar-label">{{ i.name }}</div>
+        {{ bar(i.bar) }}
+        <div class="bar-value"><strong>{{ '%.1f' | format(i.share_percent) }}%</strong> <span class="bar-n">{{ '{:,}'.format(i.products) }} of {{ '{:,}'.format(summary.products) }} products</span></div>
+    </div>
+    {% endfor %}
+</div>
+<p class="ingredients-note">Water is left out of this ranking because it is in almost every product: it is in at least {{ '%.1f' | format(summary.water.share_percent) }}% of these products ({{ '{:,}'.format(summary.water.products) }} of {{ '{:,}'.format(summary.products) }}). Other names such as "Purified Water" are counted as separate ingredients.</p>
+{% else %}
+{{ not_enough() }}
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<section class="insights-page">
+    <h1 class="page-title">Insights</h1>
+    <p class="compare-intro">What shoppers love and review on one retailer's site, and which ingredients are common. Everything here is worked out from the products in this app.</p>
+
+    <form class="filter-bar" method="get" action="{{ url_for('insights') }}">
+        <label class="picker-label" for="group">Product type</label>
+        <select class="form-input" id="group" name="group" data-autosubmit>
+            <option value="">All product types (overall view)</option>
+            {% for g in data.selector_groups %}
+            <option value="{{ g.name }}" {% if g.name == group %}selected{% endif %}>{{ g.name }} ({{ g.products }})</option>
+            {% endfor %}
+        </select>
+        <button class="btn-primary" type="submit">Show</button>
+        {% if group %}<a class="btn-ghost" href="{{ url_for('insights') }}">Back to the overall view</a>{% endif %}
+    </form>
+
+    {% if message %}<p class="notice">{{ message }}</p>{% endif %}
+
+    <div class="tiles">
+        <div class="tile"><div class="tile-label">Products</div><div class="tile-value">{{ '{:,}'.format(overview.products) }}</div></div>
+        <div class="tile"><div class="tile-label">Brands</div><div class="tile-value">{{ '{:,}'.format(overview.brands) }}</div></div>
+        <div class="tile"><div class="tile-label">Comparison groups</div><div class="tile-value">{{ overview.groups }}</div></div>
+    </div>
+
+    <h2 class="section-title">Most loved brands</h2>
+    {% if brands %}
+    <p class="chart-legend">Brands ranked by the total number of loves across all their products. The rating is the average over the brand's rated products, weighted by how many reviews each has.</p>
+    <div class="bar-chart">
+        {% for b in brands %}
+        <div class="bar-row">
+            <div class="bar-label">{{ b.brand }} <span class="bar-n">{{ b.products }} product{{ '' if b.products == 1 else 's' }}</span></div>
+            {{ bar(b.bar) }}
+            <div class="bar-value"><strong>{{ '{:,}'.format(b.loves) }}</strong> <span class="bar-n">loves</span><br>
+                <span class="bar-n">{% if b.average_rating is not none %}average rating {{ '%.2f' | format(b.average_rating) }} (weighted by {{ '{:,}'.format(b.rated_reviews) }} reviews){% else %}no ratings{% endif %}</span></div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    {{ not_enough() }}
+    {% endif %}
+
+    <h2 class="section-title">Most loved products{% if group %} in {{ group }}{% endif %}</h2>
+    {% if loved_products %}
+    <div class="table-wrap">
+        <table class="product-table">
+            <thead>
+                <tr><th>Product</th><th>Brand</th><th class="num">Price (USD)</th><th>Rating</th><th class="num">Loves</th></tr>
+            </thead>
+            <tbody>
+                {% for p in loved_products %}
+                <tr>
+                    <td><a class="product-link" href="{{ url_for('product_detail', id=p.id) }}">{{ p.name }}</a></td>
+                    <td>{{ p.brand }}</td>
+                    <td class="num">{{ usd_inr(p.price, p.price_inr) }}</td>
+                    <td>{{ rating_text(p.rating, p.reviews) }}</td>
+                    <td class="num"><strong>{{ '{:,}'.format(p.loves_count) }}</strong>{{ bar(p.bar) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    {{ not_enough() }}
+    {% endif %}
+
+    {% if group %}
+    <h2 class="section-title">Well-reviewed and lower price per ml in {{ group }}</h2>
+    <p class="chart-legend">Products with at least {{ config.well_reviewed_min_reviews }} reviews and a rating of at least {{ '%.1f' | format(config.well_reviewed_min_rating) }}, sorted by price per ml from lowest.
+        {% if well_reviewed and well_reviewed.qualifying_products %}{{ well_reviewed.qualifying_products }} products in {{ group }} meet both.{% endif %}</p>
+    {% if well_reviewed and well_reviewed.products %}
+    <div class="table-wrap">
+        <table class="product-table">
+            <thead>
+                <tr><th>Product</th><th>Brand</th><th class="num">Price per ml</th><th class="num">Price (USD)</th><th>Rating</th></tr>
+            </thead>
+            <tbody>
+                {% for p in well_reviewed.products %}
+                <tr>
+                    <td><a class="product-link" href="{{ url_for('product_detail', id=p.id) }}">{{ p.name }}</a></td>
+                    <td>{{ p.brand }}</td>
+                    <td class="num">{{ per_ml(p.price_per_ml, p.price_per_ml_inr) }}</td>
+                    <td class="num">{{ usd_inr(p.price, p.price_inr) }}</td>
+                    <td>{{ rating_text(p.rating, p.reviews) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    {{ not_enough() }}
+    {% endif %}
+
+    <h2 class="section-title">Price per ml and rating in {{ group }}</h2>
+    <p class="chart-legend">Products with a price per ml and at least {{ config.band_min_reviews }} reviews are split into three equal-size bands by price per ml. Each bar is the review-weighted average rating of the band, on a scale from 0 to 5.</p>
+    {% if price_bands and price_bands.enough %}
+    <div class="bar-chart">
+        {% for b in price_bands.bands %}
+        <div class="bar-row">
+            <div class="bar-label">{{ b.label | capitalize }} price per ml <span class="bar-n">n={{ b.products }}</span></div>
+            {{ bar(b.bar) }}
+            <div class="bar-value"><strong>{{ '%.2f' | format(b.average_rating) }}</strong> <span class="bar-n">average rating, {{ '{:,}'.format(b.reviews) }} reviews</span></div>
+        </div>
+        {% endfor %}
+    </div>
+    <p class="chart-note">This shows a pattern in these products, not a cause.</p>
+    {% else %}
+    {{ not_enough() }}
+    <p class="chart-note">At least {{ config.band_min_products }} products with a price per ml and {{ config.band_min_reviews }} or more reviews are needed.</p>
+    {% endif %}
+    {% endif %}
+
+    <h2 class="section-title">Common ingredients{% if group %} in {{ group }}{% endif %}</h2>
+    {{ ingredient_chart(ingredients) }}
+
+    <h2 class="section-title">Key takeaways</h2>
+    {% if takeaways %}
+    <ul class="takeaways">
+        {% for sentence in takeaways %}<li>{{ sentence }}</li>{% endfor %}
+    </ul>
+    {% else %}
+    {{ not_enough() }}
+    {% endif %}
+
+    <h2 class="section-title">How to read this</h2>
+    <ul class="how-to-read">
+        <li>Loves, reviews and ratings show shopper engagement on one retailer's website. They are not sales figures.</li>
+        <li>Older products have had more time to collect loves and reviews.</li>
+        <li>Ratings with few reviews are ignored: the well-reviewed list needs at least {{ config.well_reviewed_min_reviews }} reviews and the price bands need at least {{ config.band_min_reviews }}. Brand averages are weighted by review count.</li>
+        <li>Prices are US prices{% if rate %} converted at the rate shown below{% endif %} and are approximate.</li>
+    </ul>
+    {% if rate %}
+    <p class="rate-note">Converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}). Approximate, not Indian retail prices.{% if rate.stale %} (older rate){% endif %}</p>
+    {% endif %}
+</section>
+{% endblock %}

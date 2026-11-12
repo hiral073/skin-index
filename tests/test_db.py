@@ -77,6 +77,35 @@ def test_init_db_adds_compare_group_to_an_older_products_table_and_keeps_rows(db
     assert [tuple(r) for r in query(db_path, "SELECT id, name, compare_group FROM products")] == [(1, "Old", None)]
 
 
+def test_new_database_has_the_popularity_columns(db_path):
+    init_db(db_path)
+    assert {"loves_count", "rating", "reviews"} <= set(product_columns(db_path))
+
+
+def test_init_db_adds_the_popularity_columns_to_an_older_products_table_and_keeps_rows(db_path):
+    with closing(sqlite3.connect(db_path)) as conn, conn:    # products before loves, rating and reviews
+        conn.executescript(
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, brand TEXT NOT NULL,"
+            " category TEXT, price REAL, size_text TEXT, size_ml REAL, price_per_ml REAL,"
+            " ingredients_text TEXT, compare_group TEXT);"
+            "INSERT INTO products (id, name, brand, compare_group) VALUES (1, 'Old', 'Brand', 'Serums');"
+        )
+    init_db(db_path)
+    init_db(db_path)   # idempotent
+    assert {"loves_count", "rating", "reviews"} <= set(product_columns(db_path))
+    rows = query(db_path, "SELECT id, name, compare_group, loves_count, rating, reviews FROM products")
+    assert [tuple(r) for r in rows] == [(1, "Old", "Serums", None, None, None)]
+
+
+def test_popularity_values_round_trip_and_may_be_empty(db_path):
+    init_db(db_path)
+    with closing(get_db(db_path)) as conn, conn:
+        conn.execute("INSERT INTO products (name, brand, loves_count, rating, reviews) VALUES ('a', 'b', 763168, 4.3815, 1376)")
+        conn.execute("INSERT INTO products (name, brand) VALUES ('c', 'd')")
+    rows = query(db_path, "SELECT loves_count, rating, reviews FROM products ORDER BY id")
+    assert [tuple(r) for r in rows] == [(763168, 4.3815, 1376), (None, None, None)]
+
+
 def test_seed_db_gives_each_product_a_compare_group(db_path):
     init_db(db_path)
     seed_db(db_path)

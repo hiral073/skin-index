@@ -2,7 +2,7 @@
 
 A Flask app for understanding skincare products: ingredients, price per ml, product comparison, brand-level price insights and skin-type tags, plus live pages for daily conditions and research.
 
-**Status:** in progress. Steps 1-6 are done (database, dataset loader, product search, INR prices, product page, compare). The rest is built step by step.
+**Status:** in progress. Steps 1-7 are done (database, dataset loader, product search, INR prices, product page, compare, insights). The rest is built step by step.
 
 ## Features and roadmap
 1. Database setup (SQLite) — done
@@ -12,13 +12,15 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
 5. Product page: ingredients, price, price per ml — done
    - 5b. Stated ingredient strengths, only where the brand prints them — done
 6. Compare two products: price per ml and ingredient overlap — done
-7. Insights page: price per ml by brand, most common ingredients
+7. Insights page: most loved brands and products, well-reviewed products with a lower price per ml, price vs rating, most common ingredients — done
 8. Skin-type tags and filter (ingredient-based, with reasons)
 9. Today page: weather, UV and air quality from Open-Meteo
 10. Research page: PubMed titles, journals, years and links
 11. MCP server (read-only access to the product data)
 
 Not planned: login, an in-app AI assistant, Indian product data.
+
+The Insights page shows what shoppers love and review on one retailer's site (loves, ratings and reviews from the dataset, not sales): the most loved brands and products, and the most common ingredients. Choose one product type in the dropdown to also see well-reviewed products (at least 50 reviews and a rating of at least 4.0) sorted by price per ml, and how the average rating differs across three price-per-ml bands. Ratings are averaged using each product's number of reviews as the weight, ratings with few reviews are ignored, and older products have had more time to collect loves and reviews. The bands show a pattern, not a cause. Prices are US prices, converted to rupees at the shown rate, and are approximate.
 
 Compare works on two products from the same category (the most specific category level in the data, for example "Face Serums"). You pick them from dropdowns, so there is no need to type a name. Products from different categories, and mini sizes and gift sets, are not compared, because the result would not be fair. After loading the data, run `python -m database.load_data` again whenever the loader changes, so each product gets its category group.
 

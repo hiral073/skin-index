@@ -5,8 +5,8 @@ from flask import Flask, abort, render_template, request, url_for
 
 from database.db import DB_PATH, get_db
 from database.services import (
-    compare_products, escape_like, get_product_detail, get_usd_inr_rate, inr_per_ml,
-    inr_price, list_brands_in_group, list_groups, list_products_in_group,
+    compare_products, escape_like, get_insights, get_product_detail, get_usd_inr_rate,
+    inr_per_ml, inr_price, list_brands_in_group, list_groups, list_products_in_group,
 )
 
 PAGE_SIZE = 24
@@ -277,13 +277,113 @@ def compare():
     )
 
 
-# ------------------------------------------------------------------ #
-# Placeholder routes — to be implemented step by step                 #
-# ------------------------------------------------------------------ #
+def bar_percent(value, largest):
+    """Width of a bar as a percentage of the largest value on its chart."""
+    return round(value / largest * 100, 1) if largest else 0.0
+
+
+def ingredient_takeaway(summary):
+    if not summary["top"]:
+        return None
+    top = summary["top"][0]
+    return (f"After water, the most common ingredient is {top['name']}, found in "
+            f"{top['share_percent']:.1f}% of products ({top['products']:,} of {summary['products']:,}).")
+
+
+def build_takeaways(data):
+    """Plain, neutral sentences made from the computed numbers.
+
+    They describe shopper engagement (loves, ratings, reviews) and ingredients; they never
+    say anything about sales, effectiveness or quality.
+    """
+    group, config = data["scope_group"], data["config"]
+    sentences = []
+    if data["brands"]:
+        top = data["brands"][0]
+        lead = "Across all products, " if group else ""
+        noun = "product" if top["products"] == 1 else "products"
+        sentence = (f"{lead}{top['brand']} has the most loves ({top['loves']:,}) "
+                    f"from its {top['products']} {noun}")
+        if top["average_rating"] is not None:
+            sentence += f", with a review-weighted average rating of {top['average_rating']:.2f}"
+        sentences.append(sentence + ".")
+    if data["loved_products"]:
+        top = data["loved_products"][0]
+        where = f" in {group}" if group else ""
+        sentences.append(
+            f"The most loved product{where} is {top['name']} by {top['brand']} ({top['loves_count']:,} loves)."
+        )
+    sentences.append(ingredient_takeaway(data["ingredients"]))
+    if group:
+        bands = data["price_bands"]
+        if bands and bands["enough"]:
+            ratings = [f"{b['average_rating']:.2f}" for b in bands["bands"]]
+            counts = [str(b["products"]) for b in bands["bands"]]
+            sentences.append(
+                f"In {group}, products in the lower, middle and higher price-per-ml bands have review-weighted "
+                f"average ratings of {ratings[0]}, {ratings[1]} and {ratings[2]} "
+                f"(n={counts[0]}, {counts[1]} and {counts[2]}); this shows a pattern, not a cause."
+            )
+        well = data["well_reviewed"]
+        if well and well["qualifying_products"]:
+            sentences.append(
+                f"{well['qualifying_products']} products in {group} have at least "
+                f"{config['well_reviewed_min_reviews']} reviews and a rating of at least "
+                f"{config['well_reviewed_min_rating']:.1f}."
+            )
+    return [s for s in sentences if s]
+
 
 @app.route("/insights")
 def insights():
-    return "Market insights — coming in Step 7"
+    db_path = app.config["DATABASE"]
+    requested = request.args.get("group", "").strip() or None
+    data = get_insights(requested, db_path)
+    config = data["config"]
+
+    message = None
+    if data["group_status"] == "unavailable":
+        message = ("We couldn't show that product type, so this is the overall view. Only types with at "
+                   f"least {config['min_group_products']} products can be shown.")
+
+    rate = get_usd_inr_rate(db_path) if data["overview"]["products"] else None
+    rate_value = rate and rate.rate
+
+    largest_loves = max((b["loves"] for b in data["brands"]), default=0)
+    brands = [{**b, "bar": bar_percent(b["loves"], largest_loves)} for b in data["brands"]]
+
+    largest_loved = max((p["loves_count"] for p in data["loved_products"]), default=0)
+    loved_products = [
+        {**p, "price_inr": inr_price(p["price"], rate_value), "bar": bar_percent(p["loves_count"], largest_loved)}
+        for p in data["loved_products"]
+    ]
+
+    well_reviewed = data["well_reviewed"]
+    if well_reviewed:
+        well_reviewed = {**well_reviewed, "products": [
+            {**p, "price_inr": inr_price(p["price"], rate_value),
+             "price_per_ml_inr": inr_per_ml(p["price_per_ml"], rate_value)}
+            for p in well_reviewed["products"]
+        ]}
+
+    price_bands = data["price_bands"]
+    if price_bands:
+        # ratings run 0 to 5, so the bar uses that scale
+        price_bands = {**price_bands, "bands": [
+            {**b, "bar": round(b["average_rating"] / 5 * 100, 1)} for b in price_bands["bands"]
+        ]}
+
+    def ingredient_bars(summary):
+        # shares are already percentages of products, so the bar uses that 0-100 scale
+        return {**summary, "top": [{**i, "bar": round(i["share_percent"], 1)} for i in summary["top"]]}
+
+    return render_template(
+        "insights.html",
+        data=data, overview=data["overview"], config=config, brands=brands,
+        loved_products=loved_products, well_reviewed=well_reviewed, price_bands=price_bands,
+        ingredients=ingredient_bars(data["ingredients"]), takeaways=build_takeaways(data),
+        message=message, rate=rate, group=data["scope_group"],
+    )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import re
 from contextlib import closing
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -10,8 +11,8 @@ from database.load_data import (
     IGNORED_VALUE, LEADING, MERGED, MULTIPACK, NO_INGREDIENTS, NO_PRICE, NO_SIZE,
     NOT_SKINCARE, PAREN, PLAIN, SECOND_LEVEL, THIRD_LEVEL, TRAILING, WEIGHT_SIZE,
     StrengthEvent, StrengthReport, ambiguous_subcategories, clean_products, compare_group,
-    load_products, main, parse_ingredients, parse_size_ml, parse_strength, pick_examples,
-    split_ingredients, strengths_apply, table_counts,
+    decimal_number, load_products, main, parse_ingredients, parse_size_ml, parse_strength,
+    pick_examples, split_ingredients, strengths_apply, table_counts, whole_number,
 )
 
 
@@ -245,7 +246,7 @@ def strength_df():
     ]
     df = pd.DataFrame(rows, columns=cols)
     df["tertiary_category"] = ["Face Serums", None, None, "Candles"]
-    return df
+    return with_popularity(df)
 
 
 def test_clean_products_extracts_only_for_regular_skincare():
@@ -388,9 +389,79 @@ def test_compare_group_adds_the_second_level_to_a_clashing_name():
 def group_df(rows):
     cols = ["product_name", "brand_name", "primary_category", "secondary_category",
             "tertiary_category", "price_usd", "size", "ingredients"]
-    return pd.DataFrame(
+    return with_popularity(pd.DataFrame(
         [(n, "B", "Skincare", s, t, 10.0, "1 oz/ 30 mL", "['Water']") for n, s, t in rows], columns=cols
-    )
+    ))
+
+
+def with_popularity(df):
+    """loves 1000, 2000, ...; the odd rows have no rating and no reviews (blank in the CSV)."""
+    df = df.copy()
+    n = len(df)
+    df["loves_count"] = [1000 * (i + 1) for i in range(n)]
+    df["rating"] = [4.0 + i / 10 if i % 2 == 0 else float("nan") for i in range(n)]
+    df["reviews"] = [10.0 * (i + 1) if i % 2 == 0 else float("nan") for i in range(n)]
+    return df
+
+
+@pytest.mark.parametrize("value, expected", [
+    (1376.0, 1376), (0, 0), (np.int64(7), 7), (np.float64(12.0), 12), (float("nan"), None), (None, None), (pd.NA, None),
+])
+def test_whole_number(value, expected):
+    result = whole_number(value)
+    assert result == expected and (result is None or type(result) is int)
+
+
+@pytest.mark.parametrize("value, expected", [
+    (4.3815, 4.3815), (5, 5.0), (np.float64(1.8462), 1.8462), (float("nan"), None), (None, None), (pd.NA, None),
+])
+def test_decimal_number(value, expected):
+    result = decimal_number(value)
+    assert result == expected and (result is None or type(result) is float)
+
+
+def test_clean_products_reads_loves_rating_and_reviews_and_keeps_blanks_empty():
+    df = group_df([("A", "Treatments", "Face Serums"), ("B", "Treatments", "Face Serums"),
+                   ("C", "Treatments", "Face Serums")])
+    df["size"] = ["1 oz/ 30 mL", "2 oz/ 60 mL", "3 oz/ 90 mL"]
+    products, _ = clean_products(df)
+    got = {p["name"]: (p["loves_count"], p["rating"], p["reviews"]) for p in products}
+    assert got == {"A": (1000, 4.0, 10), "B": (2000, None, None), "C": (3000, 4.2, 30)}
+    assert type(products[0]["loves_count"]) is int and type(products[0]["reviews"]) is int
+    assert type(products[0]["rating"]) is float
+
+
+def test_clean_products_without_the_popularity_columns_gives_empty_values():
+    products, _ = clean_products(sample_df())              # this frame has none of the three columns
+    assert products and all(p["loves_count"] is None and p["rating"] is None and p["reviews"] is None
+                            for p in products)
+
+
+def test_load_products_stores_loves_rating_and_reviews(tmp_path):
+    db = str(tmp_path / "test.db")
+    init_db(db)
+    df = group_df([("A", "Treatments", "Face Serums"), ("B", "Treatments", "Face Serums")])
+    df["size"] = ["1 oz/ 30 mL", "2 oz/ 60 mL"]
+    products, _ = clean_products(df)
+    load_products(products, db)
+    with closing(get_db(db)) as conn:
+        rows = conn.execute("SELECT name, loves_count, rating, reviews FROM products ORDER BY name").fetchall()
+    assert [tuple(r) for r in rows] == [("A", 1000, 4.0, 10), ("B", 2000, None, None)]
+
+
+def test_main_prints_the_popularity_report(tmp_path, capsys):
+    df = group_df([("A", "Treatments", "Face Serums"), ("B", "Treatments", "Face Serums"),
+                   ("C", "Treatments", "Face Serums")])
+    df["size"] = ["1 oz/ 30 mL", "2 oz/ 60 mL", "3 oz/ 90 mL"]
+    csv = tmp_path / "products.csv"
+    df.to_csv(csv, index=False)
+    main(str(csv), str(tmp_path / "test.db"))
+    out = capsys.readouterr().out
+    assert "Shopper engagement" in out
+    assert re.search(r"loves_count filled\s+3\s+range 1000 to 3000", out)
+    assert re.search(r"rating filled\s+2\s+range 4 to 4.2", out)
+    assert re.search(r"reviews filled\s+2\s+range 10 to 30", out)
+    assert re.search(r"products missing rating and reviews\s+1\n", out)
 
 
 def test_ambiguous_subcategories_finds_names_under_several_second_levels():
