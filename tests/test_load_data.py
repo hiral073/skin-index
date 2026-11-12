@@ -6,10 +6,11 @@ import pytest
 
 from database.db import get_db, init_db, seed_db
 from database.load_data import (
-    AMBIGUOUS, BAD_SIZE, DUPLICATE, EXTRACTED, IGNORED_COLON, IGNORED_VALUE, LEADING,
-    MERGED, MULTIPACK, NO_INGREDIENTS, NO_PRICE, NO_SIZE, NOT_SKINCARE, PAREN, PLAIN,
-    TRAILING, WEIGHT_SIZE, StrengthEvent, StrengthReport, clean_products, load_products,
-    main, parse_ingredients, parse_size_ml, parse_strength, pick_examples,
+    AMBIGUOUS, BAD_SIZE, DUPLICATE, EXTRACTED, GROUP_SEPARATOR, IGNORED_COLON,
+    IGNORED_VALUE, LEADING, MERGED, MULTIPACK, NO_INGREDIENTS, NO_PRICE, NO_SIZE,
+    NOT_SKINCARE, PAREN, PLAIN, SECOND_LEVEL, THIRD_LEVEL, TRAILING, WEIGHT_SIZE,
+    StrengthEvent, StrengthReport, ambiguous_subcategories, clean_products, compare_group,
+    load_products, main, parse_ingredients, parse_size_ml, parse_strength, pick_examples,
     split_ingredients, strengths_apply, table_counts,
 )
 
@@ -242,7 +243,9 @@ def strength_df():
         ("Scented Candle", "BrandB", "Fragrance", "Candles", 30.0, "6 oz/ 177 mL",
          "['Wax, Cotton Wick 100%, Fragrance 5%']"),
     ]
-    return pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    df["tertiary_category"] = ["Face Serums", None, None, "Candles"]
+    return df
 
 
 def test_clean_products_extracts_only_for_regular_skincare():
@@ -353,6 +356,122 @@ def test_main_prints_the_strength_report(tmp_path, capsys):
     assert "Zinc Oxide (12.025%)  ->  Zinc Oxide + 12.025%" in out
     assert "Avobenzone 3% Sunscreen" in out            # listed as ambiguous
     assert "Ambiguous, left unchanged" in out
+
+
+AA = GROUP_SEPARATOR
+
+
+@pytest.mark.parametrize("secondary, tertiary, expected", [
+    ("Treatments", "Face Serums", ("Face Serums", THIRD_LEVEL)),
+    ("Moisturizers", "Moisturizers", ("Moisturizers", THIRD_LEVEL)),
+    ("Lip Balms & Treatments", None, ("Lip Balms & Treatments", SECOND_LEVEL)),   # no third level
+    ("Cleansers", float("nan"), ("Cleansers", SECOND_LEVEL)),
+    ("Cleansers", "   ", ("Cleansers", SECOND_LEVEL)),                          # blank counts as empty
+    ("Treatments", " Face Serums ", ("Face Serums", THIRD_LEVEL)),
+    ("Mini Size", None, (None, None)),                                          # never grouped
+    ("Mini Size", "Face Serums", (None, None)),
+    ("Value & Gift Sets", "Skincare Sets", (None, None)),
+    (None, None, (None, None)),
+    (None, "Face Serums", ("Face Serums", THIRD_LEVEL)),
+])
+def test_compare_group_third_level_else_second_and_none_for_minis_and_gift_sets(secondary, tertiary, expected):
+    assert compare_group(secondary, tertiary) == expected
+
+
+def test_compare_group_adds_the_second_level_to_a_clashing_name():
+    clashing = {"Anti-Aging"}
+    assert compare_group("Eye Care", "Anti-Aging", clashing) == (f"Eye Care{AA}Anti-Aging", THIRD_LEVEL)
+    assert compare_group("Eye Care", "Eye Masks", clashing) == ("Eye Masks", THIRD_LEVEL)
+    assert AA == " › "
+
+
+def group_df(rows):
+    cols = ["product_name", "brand_name", "primary_category", "secondary_category",
+            "tertiary_category", "price_usd", "size", "ingredients"]
+    return pd.DataFrame(
+        [(n, "B", "Skincare", s, t, 10.0, "1 oz/ 30 mL", "['Water']") for n, s, t in rows], columns=cols
+    )
+
+
+def test_ambiguous_subcategories_finds_names_under_several_second_levels():
+    df = group_df([
+        ("p1", "High Tech Tools", "Anti-Aging"), ("p2", "Shop by Concern", "Anti-Aging"),
+        ("p3", "Eye Care", "Eye Masks"), ("p4", "Eye Care", "Eye Masks"),    # same pair twice: fine
+        ("p5", "Cleansers", None),                                           # no third level
+        ("p6", "Mini Size", "Eye Masks"),                                    # no group: ignored
+        ("p7", "Value & Gift Sets", "Anti-Aging"),
+    ])
+    assert ambiguous_subcategories(df) == {"Anti-Aging"}
+
+
+def test_ambiguous_subcategories_without_a_third_level_column():
+    assert ambiguous_subcategories(group_df([("p", "Eye Care", None)]).drop(columns="tertiary_category")) == set()
+
+
+def test_clean_products_sets_groups_levels_and_renames_clashes():
+    df = group_df([
+        ("Serum", "Treatments", "Face Serums"),
+        ("Lip Balm", "Lip Balms & Treatments", None),
+        ("Cream", "Moisturizers", "Moisturizers"),
+        ("Cream No Level", "Moisturizers", None),
+        ("Tiny Serum", "Mini Size", None),
+        ("Gift Kit", "Value & Gift Sets", None),
+        ("Device", "High Tech Tools", "Anti-Aging"),
+        ("Concern", "Shop by Concern", "Anti-Aging"),
+    ])
+    df["size"] = [f"{i + 1} oz/ {30 + i} mL" for i in range(len(df))]       # keep them distinct
+    products, _ = clean_products(df)
+    got = {p["name"]: (p["compare_group"], p["group_level"]) for p in products}
+    assert got == {
+        "Serum": ("Face Serums", THIRD_LEVEL),
+        "Lip Balm": ("Lip Balms & Treatments", SECOND_LEVEL),
+        "Cream": ("Moisturizers", THIRD_LEVEL),
+        "Cream No Level": ("Moisturizers", SECOND_LEVEL),   # same name, so the same group
+        "Tiny Serum": (None, None),
+        "Gift Kit": (None, None),
+        "Device": (f"High Tech Tools{AA}Anti-Aging", THIRD_LEVEL),
+        "Concern": (f"Shop by Concern{AA}Anti-Aging", THIRD_LEVEL),
+    }
+
+
+def test_clean_products_works_without_a_third_level_column():
+    products, _ = clean_products(sample_df())            # this frame has no tertiary_category
+    assert {p["compare_group"] for p in products} == {"Moisturizers"}
+    assert {p["group_level"] for p in products} == {SECOND_LEVEL}
+
+
+def test_load_products_stores_compare_group(tmp_path):
+    db = str(tmp_path / "test.db")
+    init_db(db)
+    products, _ = clean_products(group_df([
+        ("Serum", "Treatments", "Face Serums"), ("Tiny", "Mini Size", None),
+    ]).assign(size=["1 oz/ 30 mL", "2 oz/ 60 mL"]))
+    load_products(products, db)
+    with closing(get_db(db)) as conn:
+        stored = {r["name"]: r["compare_group"] for r in conn.execute("SELECT name, compare_group FROM products")}
+    assert stored == {"Serum": "Face Serums", "Tiny": None}
+
+
+def test_main_prints_the_comparison_group_report(tmp_path, capsys):
+    df = group_df([
+        ("Serum", "Treatments", "Face Serums"), ("Lip Balm", "Lip Balms & Treatments", None),
+        ("Tiny", "Mini Size", None), ("Device", "High Tech Tools", "Anti-Aging"),
+        ("Concern", "Shop by Concern", "Anti-Aging"),
+    ])
+    df["size"] = [f"{i + 1} oz/ {30 + i} mL" for i in range(len(df))]
+    csv = tmp_path / "products.csv"
+    df.to_csv(csv, index=False)
+    db = str(tmp_path / "test.db")
+    main(str(csv), db)
+    out = capsys.readouterr().out
+    assert "Comparison groups" in out
+    assert re.search(r"products with a group\s+4\n", out)
+    assert re.search(r"fell back to the second level\s+1\n", out)
+    assert "Lip Balms & Treatments: 1" in out
+    assert re.search(r"products with no group\s+1\n", out)
+    assert "Mini Size: 1" in out and "Value & Gift Sets: 0" in out      # both always listed
+    assert f"High Tech Tools{AA}Anti-Aging (1)" in out and f"Shop by Concern{AA}Anti-Aging (1)" in out
+    assert "groups with one product (hidden from the picker)" in out
 
 
 def test_load_products_replaces_existing_rows(tmp_path):

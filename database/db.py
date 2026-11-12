@@ -5,6 +5,10 @@ from contextlib import closing
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "skin_index.db")
 
+# A comparison group with more products than this needs a brand chosen before its
+# products are listed (and no dropdown lists more than this many)
+COMPARE_DROPDOWN_MAX = 300
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS products (
     id               INTEGER PRIMARY KEY,
@@ -15,7 +19,8 @@ CREATE TABLE IF NOT EXISTS products (
     size_text        TEXT,
     size_ml          REAL,
     price_per_ml     REAL,
-    ingredients_text TEXT
+    ingredients_text TEXT,
+    compare_group    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
@@ -79,16 +84,22 @@ def get_db(db_path=None):
     return conn
 
 
+# (table, column, definition) added after the first release; CREATE TABLE IF NOT EXISTS
+# leaves an older table as it was, so init_db adds these to databases that lack them
+ADDED_COLUMNS = [
+    ("product_ingredients", "stated_percent",
+     "REAL CHECK (stated_percent IS NULL OR (stated_percent > 0 AND stated_percent < 100))"),
+    ("products", "compare_group", "TEXT"),
+]
+
+
 def init_db(db_path=None):
     with closing(get_db(db_path)) as conn:
         conn.executescript(SCHEMA)
-        # CREATE TABLE IF NOT EXISTS leaves an older product_ingredients as it was
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(product_ingredients)")}
-        if "stated_percent" not in columns:
-            conn.execute(
-                "ALTER TABLE product_ingredients ADD COLUMN stated_percent REAL"
-                " CHECK (stated_percent IS NULL OR (stated_percent > 0 AND stated_percent < 100))"
-            )
+        for table, column, definition in ADDED_COLUMNS:
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def seed_db(db_path=None):
@@ -99,9 +110,10 @@ def seed_db(db_path=None):
             for name, brand, category, price, size_text, size_ml, ingredients in SAMPLE_PRODUCTS:
                 cur = conn.execute(
                     "INSERT INTO products (name, brand, category, price, size_text,"
-                    " size_ml, price_per_ml, ingredients_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    " size_ml, price_per_ml, ingredients_text, compare_group)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (name, brand, category, price, size_text, size_ml,
-                     round(price / size_ml, 4), ", ".join(ingredients)),
+                     round(price / size_ml, 4), ", ".join(ingredients), category),
                 )
                 product_id = cur.lastrowid
                 for position, ingredient in enumerate(ingredients, start=1):

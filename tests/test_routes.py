@@ -5,7 +5,7 @@ def test_landing_page_loads(client):
 
 
 def test_placeholder_routes_respond(client):
-    for path in ["/compare", "/insights"]:
+    for path in ["/insights"]:
         response = client.get(path)
         assert response.status_code == 200, path
 

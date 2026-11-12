@@ -54,6 +54,36 @@ def test_init_db_adds_stated_percent_to_an_older_database_and_keeps_rows(db_path
     assert [tuple(r) for r in rows] == [(1, 1, 1, None)]
 
 
+def product_columns(db_path):
+    return [r["name"] for r in query(db_path, "PRAGMA table_info(products)")]
+
+
+def test_new_database_has_compare_group_column(db_path):
+    init_db(db_path)
+    assert "compare_group" in product_columns(db_path)
+
+
+def test_init_db_adds_compare_group_to_an_older_products_table_and_keeps_rows(db_path):
+    with closing(sqlite3.connect(db_path)) as conn, conn:    # products before compare_group
+        conn.executescript(
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, brand TEXT NOT NULL,"
+            " category TEXT, price REAL, size_text TEXT, size_ml REAL, price_per_ml REAL,"
+            " ingredients_text TEXT);"
+            "INSERT INTO products (id, name, brand, category) VALUES (1, 'Old', 'Brand', 'Serum');"
+        )
+    init_db(db_path)
+    init_db(db_path)   # idempotent
+    assert "compare_group" in product_columns(db_path)
+    assert [tuple(r) for r in query(db_path, "SELECT id, name, compare_group FROM products")] == [(1, "Old", None)]
+
+
+def test_seed_db_gives_each_product_a_compare_group(db_path):
+    init_db(db_path)
+    seed_db(db_path)
+    rows = query(db_path, "SELECT category, compare_group FROM products")
+    assert len(rows) == 5 and all(r["compare_group"] == r["category"] for r in rows)
+
+
 @pytest.mark.parametrize("bad", [0, -1, 100, 150])
 def test_stated_percent_must_be_between_0_and_100(db_path, bad):
     init_db(db_path)

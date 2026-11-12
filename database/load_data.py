@@ -8,12 +8,12 @@ from contextlib import closing
 
 import pandas as pd
 
-from database.db import BASE_DIR, get_db, init_db
+from database.db import BASE_DIR, COMPARE_DROPDOWN_MAX, get_db, init_db
 
 CSV_PATH = os.path.join(BASE_DIR, "data", "product_info.csv")
 COLUMNS = [
     "product_name", "brand_name", "primary_category", "secondary_category",
-    "price_usd", "size", "ingredients",
+    "tertiary_category", "price_usd", "size", "ingredients",
 ]
 
 ML_PER_FL_OZ = 29.5735
@@ -32,6 +32,12 @@ COLON_PERCENT = re.compile(r":\s*" + NUMBER + r"\s*%\s*\)?$")  # "Name : 0.0408%
 # ("Zinc Oxide 13.20 - 14.00 %"), or a sentence or heading run into the ingredient
 UNCLEAR_NAME = re.compile(r"[:;]|\.\s|[-–—/]\s*$|\b(?:to|and|or)\s*$", re.I)
 STRENGTH_EXCLUDED = {"Value & Gift Sets", "Mini Size"}  # secondary categories left exactly as they are
+
+# Comparison groups: the most specific category level (third, else second). Mini sizes and
+# gift sets mix every kind of product, so they get no group and are never compared.
+NO_GROUP_CATEGORIES = {"Value & Gift Sets", "Mini Size"}
+GROUP_SEPARATOR = " › "  # "Eye Care › Anti-Aging"
+THIRD_LEVEL, SECOND_LEVEL = "third level", "second level"
 
 # Outcome of looking at one ingredient piece
 PLAIN, EXTRACTED, IGNORED_VALUE, IGNORED_COLON, AMBIGUOUS, MERGED = (
@@ -163,6 +169,52 @@ def parse_ingredients(value, extract_strength=False):
     return items, events
 
 
+def clean_level(value):
+    """A category level as text, or None when it is missing or blank."""
+    if value is None or pd.isna(value):
+        return None
+    return str(value).strip() or None
+
+
+def ambiguous_subcategories(skincare):
+    """Third-level names that appear under more than one second-level category.
+
+    Mini Size and gift sets are left out: they get no group, so their names cannot clash.
+    """
+    if "tertiary_category" not in skincare.columns:
+        return set()
+    rows = skincare[~skincare["secondary_category"].isin(NO_GROUP_CATEGORIES)]
+    pairs = {
+        (clean_level(row.secondary_category), clean_level(row.tertiary_category))
+        for row in rows.itertuples(index=False)
+    }
+    seen, clashing = {}, set()
+    for secondary, tertiary in pairs:
+        if tertiary is None:
+            continue
+        if tertiary in seen and seen[tertiary] != secondary:
+            clashing.add(tertiary)
+        seen.setdefault(tertiary, secondary)
+    return clashing
+
+
+def compare_group(secondary, tertiary, clashing=frozenset()):
+    """(group name or None, level it came from) for one product.
+
+    The third level when there is one, else the second. A third-level name that exists
+    under several second levels gets its second level in front so the group is unique.
+    """
+    secondary, tertiary = clean_level(secondary), clean_level(tertiary)
+    if secondary in NO_GROUP_CATEGORIES:
+        return None, None
+    if tertiary:
+        name = f"{secondary}{GROUP_SEPARATOR}{tertiary}" if tertiary in clashing and secondary else tertiary
+        return name, THIRD_LEVEL
+    if secondary:
+        return secondary, SECOND_LEVEL
+    return None, None
+
+
 class StrengthReport:
     """What the strength parsing did to the kept products, for the loader's printed report."""
 
@@ -212,6 +264,7 @@ def clean_products(df, report=None):
     drops = Counter()
     skincare = df[df["primary_category"] == "Skincare"]
     drops[NOT_SKINCARE] = len(df) - len(skincare)
+    clashing = ambiguous_subcategories(skincare)
 
     products, seen = [], set()
     for row in skincare.itertuples(index=False):
@@ -236,10 +289,15 @@ def clean_products(df, report=None):
         seen.add(key)
         if report is not None:
             report.add(row.product_name, row.secondary_category, events)
+        group, group_level = compare_group(
+            row.secondary_category, getattr(row, "tertiary_category", None), clashing
+        )
         products.append({
             "name": row.product_name,
             "brand": row.brand_name,
             "category": None if pd.isna(row.secondary_category) else row.secondary_category,
+            "compare_group": group,
+            "group_level": group_level,
             "price": float(row.price_usd),
             "size_text": row.size,
             "size_ml": size_ml,
@@ -262,9 +320,11 @@ def load_products(products, db_path=None):
         for p in products:
             cur = conn.execute(
                 "INSERT INTO products (name, brand, category, price, size_text,"
-                " size_ml, price_per_ml, ingredients_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " size_ml, price_per_ml, ingredients_text, compare_group)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (p["name"], p["brand"], p["category"], p["price"], p["size_text"],
-                 p["size_ml"], p["price_per_ml"], ", ".join(p["ingredients"])),
+                 p["size_ml"], p["price_per_ml"], ", ".join(p["ingredients"]),
+                 p.get("compare_group")),
             )
             percents = p.get("stated_percents") or [None] * len(p["ingredients"])
             for position, (name, percent) in enumerate(zip(p["ingredients"], percents), start=1):
@@ -324,6 +384,30 @@ def print_strength_report(report, products, before, after):
         print(f"  {product_name} [{category}] :: {event.original}  ->  {event.name} + {percent_text(event.percent)}")
 
 
+def print_group_report(products):
+    sizes = Counter(p["compare_group"] for p in products if p.get("compare_group"))
+    fallback = Counter(p["category"] for p in products if p.get("group_level") == SECOND_LEVEL)
+    ungrouped = Counter(p["category"] for p in products if not p.get("compare_group"))
+    for category in sorted(NO_GROUP_CATEGORIES):
+        ungrouped.setdefault(category, 0)
+
+    print("\nComparison groups (third category level, else second):")
+    print(f"  {'products with a group':<40} {sum(sizes.values()):>6}")
+    print(f"  {'  fell back to the second level':<40} {sum(fallback.values()):>6}")
+    for category, n in fallback.most_common():
+        print(f"      {category}: {n}")
+    print(f"  {'products with no group':<40} {sum(ungrouped.values()):>6}")
+    for category, n in sorted(ungrouped.items(), key=lambda kv: str(kv[0])):
+        print(f"      {category}: {n}")
+    print(f"  {'groups':<40} {len(sizes):>6}")
+    big = [f"{g} ({n})" for g, n in sizes.most_common() if n > COMPARE_DROPDOWN_MAX]
+    print(f"  groups over {COMPARE_DROPDOWN_MAX} products (brand required first): {', '.join(big) or 'none'}")
+    small = [f"{g} ({n})" for g, n in sorted(sizes.items()) if n < 2]
+    print(f"  groups with one product (hidden from the picker): {', '.join(small) or 'none'}")
+    renamed = [f"{g} ({n})" for g, n in sorted(sizes.items()) if GROUP_SEPARATOR in g]
+    print(f"  groups renamed with their second level: {', '.join(renamed) or 'none'}")
+
+
 def main(csv_path=None, db_path=None):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")  # product names are not all console-safe
@@ -344,6 +428,7 @@ def main(csv_path=None, db_path=None):
     for table, n in counts.items():
         print(f"  {table:<40} {n:>6}")
     print_strength_report(report, products, before, counts)
+    print_group_report(products)
     return counts
 
 

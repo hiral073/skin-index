@@ -648,6 +648,109 @@ a { color: inherit; text-decoration: none; }
 
 .not-found-action { margin-top: 1.5rem; }
 
+/* Compare */
+
+.compare-page {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 3rem 2rem 4rem;
+}
+
+.compare-intro { color: var(--ink-muted); margin-bottom: 1.5rem; }
+
+.notice {
+    background: var(--accent-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--ink);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.compare-slots {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.slot {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1.25rem 1.5rem;
+}
+
+.slot-title {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.chosen-sub { color: var(--ink-muted); font-size: 0.9rem; margin: 0.15rem 0 0.5rem; }
+
+.change-link {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--accent);
+}
+
+.change-link:hover { text-decoration: underline; }
+
+.picker { display: flex; flex-direction: column; gap: 0.4rem; }
+.picker-label { font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); margin-top: 0.4rem; }
+.picker-within { color: var(--ink-soft); }
+.picker-hint { font-size: 0.85rem; color: var(--ink-muted); }
+.picker .btn-primary { align-self: flex-start; margin-top: 0.75rem; }
+
+.row-compare {
+    margin-left: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--accent);
+}
+
+.row-compare:hover { text-decoration: underline; }
+
+.compare-cta { margin: 1.25rem 0 0; }
+
+.compare-table th[scope="row"] {
+    background: var(--paper-warm);
+    color: var(--ink-soft);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.verdict { font-size: 1.05rem; margin-bottom: 0.5rem; }
+
+.overlap { margin-bottom: 1rem; }
+
+.ingredient-compare {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.ingredient-compare > div {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+}
+
+.ingredient-compare h3 { font-size: 0.95rem; margin-bottom: 0.5rem; }
+.ingredient-compare ul { list-style: none; }
+.ingredient-compare li { padding: 0.15rem 0; }
+
+.notice-action { margin-top: 1.5rem; }
+
+@media (max-width: 800px) {
+    .compare-slots, .ingredient-compare { grid-template-columns: 1fr; }
+}
+
 .pagination {
     display: flex;
     justify-content: center;

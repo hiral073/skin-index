@@ -126,11 +126,11 @@ def test_database_without_exchange_rates_table_gets_it(tmp_path, rate_api):
 def add_product_with_ingredients(db_path, ingredients, **fields):
     with closing(get_db(db_path)) as conn, conn:
         pid = conn.execute(
-            "INSERT INTO products (name, brand, category, price, size_text, price_per_ml)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO products (name, brand, category, price, size_text, price_per_ml, compare_group)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (fields.get("name", "Bravo Cream"), "Dew Labs", fields.get("category", "Moisturizers"),
              fields.get("price", 20.0), fields.get("size_text", "100 mL"),
-             fields.get("price_per_ml", 0.2)),
+             fields.get("price_per_ml", 0.2), fields.get("compare_group")),
         ).lastrowid
         for position, name, *percent in ingredients:   # (position, name[, stated_percent])
             conn.execute("INSERT OR IGNORE INTO ingredients (name) VALUES (?)", (name,))
@@ -144,10 +144,11 @@ def add_product_with_ingredients(db_path, ingredients, **fields):
 
 def test_get_product_detail_returns_fields_and_ingredients_in_label_order(db_path):
     pid = add_product_with_ingredients(
-        db_path, [(2, "Glycerin"), (1, "Water"), (3, "Squalane")]
+        db_path, [(2, "Glycerin"), (1, "Water"), (3, "Squalane")], compare_group="Moisturizers"
     )
     assert get_product_detail(pid, db_path) == {
         "id": pid, "name": "Bravo Cream", "brand": "Dew Labs", "category": "Moisturizers",
+        "compare_group": "Moisturizers",
         "size_text": "100 mL", "price": 20.0, "price_per_ml": 0.2,
         "ingredients": [
             {"name": "Water", "stated_percent": None},
@@ -185,7 +186,9 @@ def test_get_product_detail_keeps_missing_fields_as_none(db_path):
     assert [product[k] for k in ("category", "price", "size_text", "price_per_ml")] == [None] * 4
 
 
-@pytest.mark.parametrize("bad_id", [999, 0, -1, "1 OR 1=1", "1; DROP TABLE products"])
+@pytest.mark.parametrize("bad_id", [
+    999, 0, -1, None, True, 1.5, 2**63, 10**30, "1", "1 OR 1=1", "1; DROP TABLE products",
+])
 def test_get_product_detail_unknown_id_is_none(db_path, bad_id):
     add_product_with_ingredients(db_path, [(1, "Water")])
     assert get_product_detail(bad_id, db_path) is None

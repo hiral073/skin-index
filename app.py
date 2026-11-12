@@ -4,7 +4,10 @@ from contextlib import closing
 from flask import Flask, abort, render_template, request, url_for
 
 from database.db import DB_PATH, get_db
-from database.services import get_product_detail, get_usd_inr_rate, inr_per_ml, inr_price
+from database.services import (
+    compare_products, escape_like, get_product_detail, get_usd_inr_rate, inr_per_ml,
+    inr_price, list_brands_in_group, list_groups, list_products_in_group,
+)
 
 PAGE_SIZE = 24
 SORT_OPTIONS = {
@@ -48,11 +51,6 @@ app.config["DATABASE"] = DB_PATH  # tests point this at a temporary database
 @app.route("/")
 def landing():
     return render_template("landing.html")
-
-
-def escape_like(text):
-    """Make %, _ and \\ in user text match literally inside LIKE ... ESCAPE '\\'."""
-    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def list_args(q, category, sort, page):
@@ -153,14 +151,135 @@ def not_found(error):
     return render_template("404.html"), 404
 
 
-# ------------------------------------------------------------------ #
-# Placeholder routes — to be implemented step by step                 #
-# ------------------------------------------------------------------ #
+def parse_product_id(raw):
+    """A positive whole number from the query string, else None (anything else is ignored)."""
+    raw = (raw or "").strip()
+    if not (raw.isascii() and raw.isdigit()):
+        return None
+    return int(raw) or None
+
+
+def product_label(p):
+    """'Brand - Name (size, $price)' for a product dropdown."""
+    size = p["size_text"] or "size not available"
+    price = f"${p['price']:.2f}" if p["price"] is not None else "price not available"
+    return f"{p['brand']} - {p['name']} ({size}, {price})"
+
+
+def build_picker(side, args, other, db_path):
+    """What the page needs to let the user choose the product for `side` ('a' or 'b').
+
+    `other` is the product already chosen on the other side (or None). The picker then
+    lists only that product's comparison group, without that product itself.
+    """
+    constrained = other["compare_group"] if other else None
+    picker = {
+        "side": side, "label": f"Product {side.upper()}", "group": constrained,
+        "constrained": other is not None, "groups": None, "brands": [], "brand": "",
+        "q": args.get(f"{side}_q", "").strip(), "options": [], "needs_brand": False,
+        "total": 0, "capped": False, "other_id": other["id"] if other else None,
+    }
+    if other is None:
+        picker["groups"] = list_groups(db_path)
+        wanted = args.get(f"{side}_group", "")
+        picker["group"] = wanted if wanted in {g["name"] for g in picker["groups"]} else None
+    if not picker["group"]:
+        return picker
+    picker["brands"] = list_brands_in_group(picker["group"], db_path)
+    wanted = args.get(f"{side}_brand", "")
+    picker["brand"] = wanted if wanted in {b["brand"] for b in picker["brands"]} else ""
+    listing = list_products_in_group(
+        picker["group"], picker["brand"] or None, picker["q"],
+        exclude_id=picker["other_id"], db_path=db_path,
+    )
+    picker.update(
+        options=[{"id": p["id"], "label": product_label(p)} for p in listing["products"]],
+        needs_brand=listing["needs_brand"], total=listing["total"], capped=listing["capped"],
+    )
+    return picker
+
 
 @app.route("/compare")
 def compare():
-    return "Compare products — coming in Step 6"
+    db_path = app.config["DATABASE"]
+    args = request.args
+    ids = {"a": parse_product_id(args.get("a")), "b": parse_product_id(args.get("b"))}
+    result = compare_products(ids["a"], ids["b"], db_path)
 
+    # A product left over from an earlier choice of category or brand (a form sent
+    # without JavaScript) is not a choice: show the picker again instead.
+    stale = {
+        side: result[side] is not None and (
+            (args.get(f"{side}_group") and result[side]["compare_group"] != args.get(f"{side}_group"))
+            or (args.get(f"{side}_brand") and result[side]["brand"] != args.get(f"{side}_brand"))
+        )
+        for side in ("a", "b")
+    }
+    if stale["a"] or stale["b"]:
+        ids = {side: None if stale[side] else ids[side] for side in ids}
+        result = compare_products(ids["a"], ids["b"], db_path)
+
+    # With the same product on both sides, B is still to be chosen
+    shown = {side: result[side] for side in ("a", "b")}
+    if result["status"] == "same_product":
+        shown["b"] = None
+
+    messages = []
+    for side in ("a", "b"):
+        if result[f"{side}_state"] == "unknown":
+            messages.append(f"We couldn't find product {side.upper()} (id {ids[side]}). Please choose one below.")
+    if result["status"] == "same_product":
+        messages.append("Product A and product B are the same product. Please choose a different product for B.")
+    elif result["status"] == "different_groups":
+        messages.append(
+            f"Product A is in {result['a_group']} and product B is in {result['b_group']}, "
+            "so they can't be compared fairly."
+        )
+    elif result["status"] == "no_group":
+        for side in ("a", "b"):
+            if shown[side] and shown[side]["compare_group"] is None:
+                category = shown[side]["category"] or "its category"
+                messages.append(
+                    f"Product {side.upper()} ({category}) has no comparison group, "
+                    "so it can't be compared fairly with other products."
+                )
+
+    rate = get_usd_inr_rate(db_path) if any(shown.values()) else None
+    rate_value = rate and rate.rate
+    sides = []
+    for side, other_side in (("a", "b"), ("b", "a")):
+        product, other = shown[side], shown[other_side]
+        picker = None
+        blocked = other is not None and other["compare_group"] is None
+        if product is None and not blocked and (side == "a" or other is not None):
+            picker = build_picker(side, args, other, db_path)
+        if product is None and blocked:
+            messages.append(
+                f"Product {other_side.upper()} ({other['category'] or 'its category'}) has no "
+                "comparison group, so it can't be compared fairly with other products."
+            )
+        sides.append({
+            "side": side, "label": f"Product {side.upper()}", "product": product,
+            "price_inr": product and inr_price(product["price"], rate_value),
+            "per_ml_inr": product and inr_per_ml(product["price_per_ml"], rate_value),
+            "change_url": url_for("compare", **{other_side: other["id"]}) if other else url_for("compare"),
+            "picker": picker, "blocked": blocked and product is None,
+        })
+
+    both_shown = shown["a"] is not None and shown["b"] is not None
+    if both_shown and result["status"] == "different_groups":
+        retry_url = url_for("compare", a=shown["a"]["id"])
+    else:
+        retry_url = url_for("compare")
+    return render_template(
+        "compare.html", sides=sides, result=result, both_shown=both_shown, messages=messages,
+        rate=rate, retry_url=retry_url,
+    )
+
+
+# ------------------------------------------------------------------ #
+# Placeholder routes — to be implemented step by step                 #
+# ------------------------------------------------------------------ #
 
 @app.route("/insights")
 def insights():

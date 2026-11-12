@@ -44,6 +44,8 @@
     <p class="rate-note">Converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}). Approximate, not Indian retail prices.{% if rate.stale %} (older rate){% endif %}</p>
     {% endif %}
 
+    <p class="compare-cta"><a class="btn-ghost" href="{{ url_for('compare', a=product.id) }}">Compare with another product</a></p>
+
     <h2 class="section-title">Ingredients</h2>
     {% if product.ingredients %}
     <p class="ingredients-note">Ingredients are listed roughly from highest to lowest concentration.</p>
