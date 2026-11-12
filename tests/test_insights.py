@@ -93,10 +93,11 @@ GROUP = "/insights?group=Face+Serums"
 
 # ---------------------------------------------------------------- overall view
 
-def test_overview_tiles_have_no_price_figures(market, client):
+def test_overview_tiles_are_products_and_brands_only(market, client):
     html = page(client)
     tiles = dict(re.findall(r'tile-label">([^<]*)</div>\s*<div class="tile-value">(.*?)</div>', html, re.S))
-    assert {k: text(v) for k, v in tiles.items()} == {"Products": "20", "Brands": "5", "Comparison groups": "3"}
+    assert {k: text(v) for k, v in tiles.items()} == {"Products": "20", "Brands": "5"}
+    assert "Comparison groups" not in text(html)
 
 
 @pytest.mark.parametrize("url", ["/insights", GROUP, "/insights?group=Nope"])
@@ -341,7 +342,7 @@ def test_an_empty_database_page_loads_with_not_enough_data(app, client):
     html = page(client)
     assert html.count("Not enough data") >= 4                                       # brands, products, ingredients, takeaways
     tiles = dict(re.findall(r'tile-label">([^<]*)</div>\s*<div class="tile-value">(.*?)</div>', html, re.S))
-    assert {k: text(v) for k, v in tiles.items()} == {"Products": "0", "Brands": "0", "Comparison groups": "0"}
+    assert {k: text(v) for k, v in tiles.items()} == {"Products": "0", "Brands": "0"}
     assert "₹" not in html and "How to read this" in html
     assert "this is the overall view" in page(client, "/insights?group=Serums")
 
