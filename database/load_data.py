@@ -171,7 +171,7 @@ def parse_ingredients(value, extract_strength=False):
 
 
 def whole_number(value):
-    """A count (loves, reviews) as an int, or None when it is missing."""
+    """A count (likes, reviews) as an int, or None when it is missing."""
     if value is None or pd.isna(value):
         return None
     return int(value)
@@ -428,7 +428,7 @@ def print_group_report(products):
 
 
 def print_popularity_report(products):
-    print("\nShopper engagement from the retailer's site (loves, rating, reviews; blank stays empty):")
+    print("\nShopper engagement from the retailer's site (likes, rating, reviews; blank stays empty):")
     print(f"  {'products':<40} {len(products):>6}")
     for field in ("loves_count", "rating", "reviews"):
         values = [p[field] for p in products if p.get(field) is not None]

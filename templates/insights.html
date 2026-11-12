@@ -36,7 +36,7 @@
 {% block content %}
 <section class="insights-page">
     <h1 class="page-title">Insights</h1>
-    <p class="compare-intro">What shoppers love and review on one retailer's site, and which ingredients are common. Everything here is worked out from the products in this app.</p>
+    <p class="compare-intro">What shoppers like and review on one retailer's site, and which ingredients are common. Everything here is worked out from the products in this app.</p>
 
     <form class="filter-bar" method="get" action="{{ url_for('insights') }}">
         <label class="picker-label" for="group">Product type</label>
@@ -57,15 +57,15 @@
         <div class="tile"><div class="tile-label">Brands</div><div class="tile-value">{{ '{:,}'.format(overview.brands) }}</div></div>
     </div>
 
-    <h2 class="section-title">Most loved brands</h2>
+    <h2 class="section-title">Most liked brands</h2>
     {% if brands %}
-    <p class="chart-legend">Brands ranked by the total number of loves across all their products. The rating is the average over the brand's rated products, weighted by how many reviews each has.</p>
+    <p class="chart-legend">Brands ranked by the total number of likes across all their products. The rating is the average over the brand's rated products, weighted by how many reviews each has.</p>
     <div class="bar-chart">
         {% for b in brands %}
         <div class="bar-row">
             <div class="bar-label">{{ b.brand }} <span class="bar-n">{{ b.products }} product{{ '' if b.products == 1 else 's' }}</span></div>
             {{ bar(b.bar) }}
-            <div class="bar-value"><strong>{{ '{:,}'.format(b.loves) }}</strong> <span class="bar-n">loves</span><br>
+            <div class="bar-value"><strong>{{ '{:,}'.format(b.loves) }}</strong> <span class="bar-n">likes</span><br>
                 <span class="bar-n">{% if b.average_rating is not none %}average rating {{ '%.2f' | format(b.average_rating) }} (weighted by {{ '{:,}'.format(b.rated_reviews) }} reviews){% else %}no ratings{% endif %}</span></div>
         </div>
         {% endfor %}
@@ -74,12 +74,12 @@
     {{ not_enough() }}
     {% endif %}
 
-    <h2 class="section-title">Most loved products{% if group %} in {{ group }}{% endif %}</h2>
+    <h2 class="section-title">Most liked products{% if group %} in {{ group }}{% endif %}</h2>
     {% if loved_products %}
     <div class="table-wrap">
         <table class="product-table">
             <thead>
-                <tr><th>Product</th><th>Brand</th><th class="num">Price (USD)</th><th>Rating</th><th class="num">Loves</th></tr>
+                <tr><th>Product</th><th>Brand</th><th class="num">Price (USD)</th><th>Rating</th><th class="num">Likes</th></tr>
             </thead>
             <tbody>
                 {% for p in loved_products %}
@@ -158,8 +158,8 @@
 
     <h2 class="section-title">How to read this</h2>
     <ul class="how-to-read">
-        <li>Loves, reviews and ratings show shopper engagement on one retailer's website. They are not sales figures.</li>
-        <li>Older products have had more time to collect loves and reviews.</li>
+        <li>Likes, reviews and ratings show shopper engagement on one retailer's website. They are not sales figures.</li>
+        <li>Older products have had more time to collect likes and reviews.</li>
         <li>Ratings with few reviews are ignored: the well-reviewed list needs at least {{ config.well_reviewed_min_reviews }} reviews and the price bands need at least {{ config.band_min_reviews }}. Brand averages are weighted by review count.</li>
         <li>Prices are US prices{% if rate %} converted at the rate shown below{% endif %} and are approximate.</li>
     </ul>

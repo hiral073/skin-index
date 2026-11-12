@@ -369,7 +369,7 @@ def _price_bands(products):
 def get_insights(group=None, db_path=None):
     """Numbers for the Insights page; plain data only (no formatting, HTML or currency).
 
-    Popularity is shopper engagement from one retailer's site (loves, ratings, reviews),
+    Popularity is shopper engagement from one retailer's site (likes, ratings, reviews),
     not sales. Prices are USD. Ties are broken by name. A product missing a value a
     section needs is skipped by that section, never counted as zero.
 
@@ -381,9 +381,9 @@ def get_insights(group=None, db_path=None):
       or fewer products than the minimum); scope_group is the group when "ok", else None.
     - overview: {"products", "brands", "groups", "ungrouped_products"} over all products.
     - selector_groups: [{"name", "products"}] by name, groups with enough products.
-    - brands (always overall): top brands by total loves, [{"brand", "loves", "products",
+    - brands (always overall): top brands by total likes, [{"brand", "loves", "products",
       "average_rating", "rated_reviews"}]; average_rating is review-weighted.
-    - loved_products: top products by loves, overall or within the group: [{"id", "name",
+    - loved_products: top products by likes, overall or within the group: [{"id", "name",
       "brand", "price", "size_text", "loves_count", "rating", "reviews"}].
     - well_reviewed (group only, else None): {"qualifying_products", "products": [{"id",
       "name", "brand", "price", "price_per_ml", "rating", "reviews"}]}, products with

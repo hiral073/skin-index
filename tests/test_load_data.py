@@ -395,7 +395,7 @@ def group_df(rows):
 
 
 def with_popularity(df):
-    """loves 1000, 2000, ...; the odd rows have no rating and no reviews (blank in the CSV)."""
+    """likes 1000, 2000, ...; the odd rows have no rating and no reviews (blank in the CSV)."""
     df = df.copy()
     n = len(df)
     df["loves_count"] = [1000 * (i + 1) for i in range(n)]

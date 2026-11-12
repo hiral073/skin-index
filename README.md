@@ -12,7 +12,7 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
 5. Product page: ingredients, price, price per ml — done
    - 5b. Stated ingredient strengths, only where the brand prints them — done
 6. Compare two products: price per ml and ingredient overlap — done
-7. Insights page: most loved brands and products, well-reviewed products with a lower price per ml, price vs rating, most common ingredients — done
+7. Insights page: most liked brands and products, well-reviewed products with a lower price per ml, price vs rating, most common ingredients — done
 8. Dropped (no step 8)
 9. Today page: live UV, humidity and US AQI from Open-Meteo, shown as information, plus general sun-protection guidance based on public UV index categories, and a link to the sunscreen list. No product recommendations.
 10. Research page: PubMed titles, journals, years and links
@@ -25,9 +25,9 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
 
 Not planned: login, an in-app AI assistant, Indian product data, product recommendations.
 
-**Data:** the product data is a March 2023 Sephora US snapshot. Prices, loves, ratings and reviews are as of then, not live.
+**Data:** the product data is a March 2023 Sephora US snapshot. Prices, likes, ratings and reviews are as of then, not live.
 
-The Insights page shows what shoppers love and review on one retailer's site (loves, ratings and reviews from the dataset, not sales): the most loved brands and products, and the most common ingredients. Choose one product type in the dropdown to also see well-reviewed products (at least 50 reviews and a rating of at least 4.0) sorted by price per ml, and how the average rating differs across three price-per-ml bands. Ratings are averaged using each product's number of reviews as the weight, ratings with few reviews are ignored, and older products have had more time to collect loves and reviews. The bands show a pattern, not a cause. Prices are US prices, converted to rupees at the shown rate, and are approximate.
+The Insights page shows what shoppers like and review on one retailer's site (likes, ratings and reviews from the dataset, not sales): the most liked brands and products, and the most common ingredients. Choose one product type in the dropdown to also see well-reviewed products (at least 50 reviews and a rating of at least 4.0) sorted by price per ml, and how the average rating differs across three price-per-ml bands. Ratings are averaged using each product's number of reviews as the weight, ratings with few reviews are ignored, and older products have had more time to collect likes and reviews. The bands show a pattern, not a cause. Prices are US prices, converted to rupees at the shown rate, and are approximate.
 
 Compare works on two products from the same category (the most specific category level in the data, for example "Face Serums"). You pick them from dropdowns, so there is no need to type a name. Products from different categories, and mini sizes and gift sets, are not compared, because the result would not be fair. After loading the data, run `python -m database.load_data` again whenever the loader changes, so each product gets its category group.
 

@@ -35,12 +35,12 @@ def save_rate(db, rate=90.0, rate_date=TODAY, fetched_on=TODAY):
 def market(app):
     """20 products.
 
-    Face Serums (10): price per ml 1..10, rating 3.5..4.4, 100 reviews each, loves 1,000..10,000;
+    Face Serums (10): price per ml 1..10, rating 3.5..4.4, 100 reviews each, likes 1,000..10,000;
       Glow Co has the six cheaper ones, Dew Labs the four dearer ones.
       Water in all, Glycerin in 8, Squalane in 1.
-    Moisturizers (5, Many Products): 5.0 stars but only 5 reviews each, 100 loves each.
+    Moisturizers (5, Many Products): 5.0 stars but only 5 reviews each, 100 likes each.
     Toners (4, Zeta): too few for a group view.
-    One Mini Size product (Tiny Brand, no group): the most loved of all, 60,000 loves.
+    One Mini Size product (Tiny Brand, no group): the most loved of all, 60,000 likes.
     """
     db = app.config["DATABASE"]
     ids = {}
@@ -109,17 +109,17 @@ def test_no_median_or_lowest_highest_price_section_anywhere(market, client, url)
 
 
 def test_most_loved_brands_are_ranked_by_total_loves_with_bars_relative_to_the_top(market, client):
-    chart = section(page(client), "Most loved brands", "Most loved products")
+    chart = section(page(client), "Most liked brands", "Most liked products")
     names =[re.match(r"(.*?) \d+ products?", l).group(1) for l in labels(chart)]
     assert names == ["Tiny Brand", "Dew Labs", "Glow Co", "Many Products", "Zeta"]   # not by product count (Glow Co has most)
     assert fills(chart) == ["100.0", "56.7", "35.0", "0.8", "0.1"]                  # loves / 60,000
     t = text(chart)
-    assert "60,000 loves" in t and "34,000 loves" in t and "21,000 loves" in t
+    assert "60,000 likes" in t and "34,000 likes" in t and "21,000 likes" in t
     assert "1 product" in t and "4 products" in t and "6 products" in t and "5 products" in t
 
 
 def test_brand_ratings_are_weighted_by_reviews_and_say_so(market, client):
-    t = text(section(page(client), "Most loved brands", "Most loved products"))
+    t = text(section(page(client), "Most liked brands", "Most liked products"))
     assert "average rating 4.80 (weighted by 900 reviews)" in t                      # Tiny Brand
     assert "average rating 4.25 (weighted by 400 reviews)" in t                      # Dew Labs: 4.1 to 4.4
     assert "average rating 3.75 (weighted by 600 reviews)" in t                      # Glow Co: 3.5 to 4.0
@@ -128,7 +128,7 @@ def test_brand_ratings_are_weighted_by_reviews_and_say_so(market, client):
 
 def test_most_loved_products_table(market, client):
     html = page(client)
-    table = section(html, "Most loved products", "Common ingredients")
+    table = section(html, "Most liked products", "Common ingredients")
     rows = re.findall(r"<tr>(.*?)</tr>", table, re.S)[1:]
     assert len(rows) == 10                                                         # top 10 of 20
     first = text(rows[0])
@@ -155,19 +155,19 @@ def test_common_ingredients_overall(market, client):
 def test_group_view_adapts_sections_3_to_6_and_adds_the_group_only_ones(market, client):
     html = page(client, GROUP)
     assert '<option value="Face Serums" selected>' in html
-    assert "Most loved products in Face Serums" in html
+    assert "Most liked products in Face Serums" in html
     assert "Well-reviewed and lower price per ml in Face Serums" in html
     assert "Price per ml and rating in Face Serums" in html
     assert "Common ingredients in Face Serums" in html
     assert 'href="/insights">Back to the overall view</a>' in html
-    loved = section(html, "Most loved products in Face Serums", "Well-reviewed")
+    loved = section(html, "Most liked products in Face Serums", "Well-reviewed")
     rows = re.findall(r"<tr>(.*?)</tr>", loved, re.S)[1:]
     assert len(rows) == 10 and text(rows[0]).startswith("Serum 9 Dew Labs")         # Tiny Pot is not a Face Serum
     assert "Tiny Pot" not in loved
 
 
 def test_the_brand_chart_stays_overall_in_the_group_view(market, client):
-    chart = section(page(client, GROUP), "Most loved brands", "Most loved products")
+    chart = section(page(client, GROUP), "Most liked brands", "Most liked products")
     assert "Tiny Brand" in chart and "Zeta" in chart
 
 
@@ -200,7 +200,7 @@ def test_a_group_with_too_little_review_data_says_not_enough_data(market, client
     block = section(html, "Well-reviewed and lower price per ml", "Common ingredients in")
     assert block.count("Not enough data") == 2                                      # list and bands
     assert "At least 9 products with a price per ml and 10 or more reviews are needed." in text(block)
-    assert "Cream 0" in section(html, "Most loved products in Moisturizers", "Well-reviewed")   # loves still shown
+    assert "Cream 0" in section(html, "Most liked products in Moisturizers", "Well-reviewed")   # loves still shown
 
 
 def test_ingredients_in_a_group(market, client):
@@ -213,25 +213,25 @@ def test_ingredients_in_a_group(market, client):
 
 def test_groupless_products_are_left_out_of_group_views(market, client):
     html = page(client, GROUP)
-    assert "Tiny Pot" not in section(html, "Most loved products in", "Well-reviewed")
-    assert "Tiny Pot" not in html.split("Most loved brands")[1].split("Most loved products")[1]
+    assert "Tiny Pot" not in section(html, "Most liked products in", "Well-reviewed")
+    assert "Tiny Pot" not in html.split("Most liked brands")[1].split("Most liked products")[1]
 
 
 # ---------------------------------------------------------------- takeaways
 
 def test_overall_takeaways_use_the_computed_numbers(market, client):
     assert takeaways(page(client)) == [
-        "Tiny Brand has the most loves (60,000) from its 1 product, with a review-weighted average rating of 4.80.",
-        "The most loved product is Tiny Pot by Tiny Brand (60,000 loves).",
+        "Tiny Brand has the most likes (60,000) from its 1 product, with a review-weighted average rating of 4.80.",
+        "The most liked product is Tiny Pot by Tiny Brand (60,000 likes).",
         "After water, the most common ingredient is Glycerin, found in 40.0% of products (8 of 20).",
     ]
 
 
 def test_group_takeaways_include_the_bands_and_the_well_reviewed_count(market, client):
     assert takeaways(page(client, GROUP)) == [
-        "Across all products, Tiny Brand has the most loves (60,000) from its 1 product, with a "
+        "Across all products, Tiny Brand has the most likes (60,000) from its 1 product, with a "
         "review-weighted average rating of 4.80.",
-        "The most loved product in Face Serums is Serum 9 by Dew Labs (10,000 loves).",
+        "The most liked product in Face Serums is Serum 9 by Dew Labs (10,000 likes).",
         "After water, the most common ingredient is Glycerin, found in 80.0% of products (8 of 10).",
         "In Face Serums, products in the lower, middle and higher price-per-ml bands have review-weighted "
         "average ratings of 3.65, 4.00 and 4.30 (n=4, 3 and 3); this shows a pattern, not a cause.",
@@ -264,8 +264,8 @@ def test_the_page_never_says_best_selling_or_most_sold(market, client):
 
 def test_how_to_read_this(market, client):
     t = text(section(page(client), "How to read this"))
-    assert "Loves, reviews and ratings show shopper engagement on one retailer's website. They are not sales figures." in t
-    assert "Older products have had more time to collect loves and reviews." in t
+    assert "Likes, reviews and ratings show shopper engagement on one retailer's website. They are not sales figures." in t
+    assert "Older products have had more time to collect likes and reviews." in t
     assert ("Ratings with few reviews are ignored: the well-reviewed list needs at least 50 reviews and the "
             "price bands need at least 10. Brand averages are weighted by review count.") in t
     assert "Prices are US prices and are approximate." in t
@@ -279,7 +279,7 @@ def test_how_to_read_this(market, client):
 def test_rupees_on_product_prices_with_a_rate(market, client):
     save_rate(client.application.config["DATABASE"], 90.0)
     html = page(client)
-    t = text(section(html, "Most loved products", "Common ingredients"))
+    t = text(section(html, "Most liked products", "Common ingredients"))
     assert "$12.00 (≈ ₹1,080)" in t and "$19.00 (≈ ₹1,710)" in t
     assert f"Converted from US prices at 1 USD = ₹90.00 ({TODAY}). Approximate, not Indian retail prices." in text(html)
     block = text(section(page(client, GROUP), "Well-reviewed and lower price per ml", "Price per ml and rating"))
@@ -324,7 +324,7 @@ def test_selector_lists_groups_with_five_or_more_products(market, client):
                                    "x'; DROP TABLE products; --", "<script>alert(1)</script>"])
 def test_an_invalid_or_too_small_group_falls_back_to_the_overall_view(market, client, value):
     html = client.get("/insights", query_string={"group": value}).get_data(as_text=True)
-    assert "Most loved brands" in html and "Well-reviewed" not in html and "Price per ml and rating" not in html
+    assert "Most liked brands" in html and "Well-reviewed" not in html and "Price per ml and rating" not in html
     assert "We couldn't show that product type" in html_lib.unescape(html)
     assert "Only types with at least 5 products can be shown." in html
     assert "<script>alert(1)</script>" not in html
@@ -333,7 +333,7 @@ def test_an_invalid_or_too_small_group_falls_back_to_the_overall_view(market, cl
 
 def test_a_blank_group_is_just_the_overall_view_without_a_message(market, client):
     html = page(client, "/insights?group=")
-    assert "this is the overall view" not in html and "Most loved brands" in html
+    assert "this is the overall view" not in html and "Most liked brands" in html
 
 
 # ---------------------------------------------------------------- empty, tiny, missing data
@@ -350,8 +350,8 @@ def test_an_empty_database_page_loads_with_not_enough_data(app, client):
 def test_a_single_product_database_loads(app, client):
     add(app.config["DATABASE"], "Only", "Solo", "Serums", 12.0, 0.12, 50, 4.5, 20, ["Water", "Glycerin"])
     t = text(page(client))
-    assert "Solo" in t and "Only Solo" in t and "50 loves" in t
-    assert takeaways(page(client))[0].startswith("Solo has the most loves (50) from its 1 product")
+    assert "Solo" in t and "Only Solo" in t and "50 likes" in t
+    assert takeaways(page(client))[0].startswith("Solo has the most likes (50) from its 1 product")
 
 
 def test_products_with_no_popularity_data_do_not_break_the_page(app, client):
@@ -366,7 +366,7 @@ def test_products_with_no_popularity_data_do_not_break_the_page(app, client):
 
 def test_a_most_loved_product_without_a_rating_says_not_available(app, client):
     add(app.config["DATABASE"], "No rating", "B", "Serums", 10.0, 1.0, 500, None, None)
-    row = section(page(client), "Most loved products", "Common ingredients")
+    row = section(page(client), "Most liked products", "Common ingredients")
     assert "Not available" in row and "No rating" in row
 
 

@@ -293,7 +293,7 @@ def ingredient_takeaway(summary):
 def build_takeaways(data):
     """Plain, neutral sentences made from the computed numbers.
 
-    They describe shopper engagement (loves, ratings, reviews) and ingredients; they never
+    They describe shopper engagement (likes, ratings, reviews) and ingredients; they never
     say anything about sales, effectiveness or quality.
     """
     group, config = data["scope_group"], data["config"]
@@ -302,7 +302,7 @@ def build_takeaways(data):
         top = data["brands"][0]
         lead = "Across all products, " if group else ""
         noun = "product" if top["products"] == 1 else "products"
-        sentence = (f"{lead}{top['brand']} has the most loves ({top['loves']:,}) "
+        sentence = (f"{lead}{top['brand']} has the most likes ({top['loves']:,}) "
                     f"from its {top['products']} {noun}")
         if top["average_rating"] is not None:
             sentence += f", with a review-weighted average rating of {top['average_rating']:.2f}"
@@ -311,7 +311,7 @@ def build_takeaways(data):
         top = data["loved_products"][0]
         where = f" in {group}" if group else ""
         sentences.append(
-            f"The most loved product{where} is {top['name']} by {top['brand']} ({top['loves_count']:,} loves)."
+            f"The most liked product{where} is {top['name']} by {top['brand']} ({top['loves_count']:,} likes)."
         )
     sentences.append(ingredient_takeaway(data["ingredients"]))
     if group:
