@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Skin Index: Flask app for exploring skincare products (ingredients, price per ml, product comparison, brand price insights, skin-type tags) with a few live-data pages (daily conditions, research). Built step by step per the Roadmap below. Stack: Python, Flask, SQLite, pandas, plain HTML/CSS/JS, pytest.
+Skin Index: Flask app for exploring skincare products (ingredients, price per ml, product comparison, shopper-engagement insights) with live-data pages (today's UV, humidity and air quality; research) and, later, ingredient tools. It informs and never recommends (see Claims and safety rules). Built step by step per the Roadmap below. Stack: Python, Flask, SQLite, pandas, plain HTML/CSS/JS, pytest.
 
 ## Commands (Windows PowerShell)
 
@@ -23,16 +23,16 @@ No linter or build step configured. Two virtualenvs exist in the tree (`venv/`, 
 ## Scope
 
 MVP pages:
-- Products, with search, category filter and skin-type filter
+- Products, with search and category filter (the avoid-list exclude filter comes with Step 12c)
 - Product detail
 - Compare
 - Insights
 
-Live-data pages: Today (weather, UV, air quality) and Research (PubMed).
+Live-data pages: Today (UV, humidity and US AQI as information, with general sun-protection guidance and a link to the sunscreen list) and Research (PubMed).
 
-Later: an MCP server over the same data.
+Later: an MCP server over the same data (Step 11), then Ingredient Intelligence (Step 12) and engineering polish (Step 13).
 
-Still out of scope: login, an in-app AI assistant, Indian product data. INR is only a display conversion of the USD prices already in the dataset, not Indian product data.
+Still out of scope: login, an in-app AI assistant, Indian product data, product recommendations, and skin-type or skin-concern advice. INR is only a display conversion of the USD prices already in the dataset, not Indian product data.
 
 ## Roadmap
 
@@ -46,10 +46,15 @@ Steps 1-7 are done. Build one step at a time, in this order:
    - 5b. Stated ingredient strengths (`stated_percent`) — done
 6. Compare — done
 7. Insights — done
-8. Skin-type tags and filter
-9. Today page (Open-Meteo weather, UV, AQI)
+8. Dropped (no step 8)
+9. Today page: live UV, humidity and US AQI from Open-Meteo, shown as information, plus general sun-protection guidance based on public UV index categories, and a link to the sunscreen list. No product recommendations.
 10. Research page (PubMed)
-11. MCP server
+11. MCP server: tools for search, compare, insights, weather and the avoid-list check. No skin-type tool.
+12. Ingredient Intelligence
+    - 12a. Ingredient-name normalizer: map names to canonical names with exact, alias and fuzzy matching, and report the match rate.
+    - 12b. Official ingredient functions, and "has an EU restriction, see CosIng" notes, from the EU CosIng database. Only after checking its data-use terms.
+    - 12c. "My avoid list" checker and a `/products` exclude filter, including common aliases such as Parfum/Fragrance and an optional EU fragrance-allergen list.
+13. Engineering polish: GitHub Actions CI, a test hook, a claims-reviewer skill or subagent, an automated test that scans templates for medical-claim wording, README and screenshots.
 
 ## Architecture
 
@@ -77,6 +82,7 @@ Steps 1-7 are done. Build one step at a time, in this order:
 
 ## Data rules
 
+- Data note: the product data is a March 2023 Sephora US snapshot. Prices, loves, ratings and reviews are as of then, not live.
 - Prices are stored in USD.
 - INR is derived at display time from the cached daily exchange rate. It is labeled approximate and shows the rate date.
 - If today's rate cannot be fetched, use the last saved rate with its date. If no rate was ever saved, hide INR.
@@ -97,13 +103,15 @@ Steps 1-7 are done. Build one step at a time, in this order:
 - Weighted average rating = sum(rating × reviews) ÷ sum(reviews). Ratings with few reviews are ignored where it matters: the well-reviewed list needs at least 50 reviews and a rating of at least 4.0, the price bands at least 10 reviews. Old products have had more time to collect loves and reviews, and the page says so.
 - No median or min/max price sections on this page. Water is shown in a note, not in the ingredient ranking; its share is "at least" because names like "Purified Water" are separate ingredients.
 
-## Skin-type rules
+## Claims and safety rules
 
-- Tags are ingredient-based and conservative.
-- Tag a product only when there is a clear positive signal and no conflicting ingredient.
-- Always return the reasons for a tag, not just the tag.
-- Wording is "contains ...", never "treats" or "safe for".
-- Pages that show skin-type tags carry a not-medical-advice note.
+- The app informs and never recommends. No product is called better, best, right or suitable for anyone.
+- No skin-type, skin-concern or "good for" claims anywhere (pages, takeaways, MCP tools, docs).
+- Never say "safe", "treats" or "cures". Wording is "contains ...".
+- The user's avoid list lives only in the browser (the URL or local storage). It is never saved in the database and never logged.
+- "Not flagged" must never be shown as "safe": an ingredient list with no match only means nothing on the list was found.
+- Every page that shows ingredient information or the avoid list carries a patch-test / see-a-dermatologist note.
+- Regulatory restrictions (for example EU CosIng) are shown only as a pointer to CosIng ("has an EU restriction, see CosIng"), never interpreted.
 
 ## Research rules
 
@@ -115,10 +123,12 @@ Steps 1-7 are done. Build one step at a time, in this order:
 
 - The MCP server opens the database read-only.
 - MCP tools call the same service functions as the pages.
+- Tools: search, compare, insights, weather and the avoid-list check. There is no skin-type tool.
+- The avoid-list check takes the list as an argument for that one call and does not store it (see Claims and safety rules).
 
 ## Project rules
 - Stack: Flask, SQLite (sqlite3), pandas, pytest, plus `requests` for HTTP in `live/`. No other frameworks.
 - Windows: activate venv with .\venv\Scripts\Activate.ps1, app runs on port 5001.
-- Build one step at a time (Steps 1-11 in the Roadmap and README). Do not start later steps.
+- Build one step at a time (Steps 1-13 in the Roadmap and README; there is no Step 8). Do not start later steps.
 - After every change, run pytest and show the result.
 - Keep the light pink theme and the existing file structure.

@@ -1,6 +1,6 @@
 # Skin Index
 
-A Flask app for understanding skincare products: ingredients, price per ml, product comparison, brand-level price insights and skin-type tags, plus live pages for daily conditions and research.
+A Flask app for understanding skincare products: ingredients, price per ml, product comparison and shopper-engagement insights, plus live pages for today's sun and air conditions and for research, and later ingredient tools.
 
 **Status:** in progress. Steps 1-7 are done (database, dataset loader, product search, INR prices, product page, compare, insights). The rest is built step by step.
 
@@ -13,12 +13,19 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
    - 5b. Stated ingredient strengths, only where the brand prints them — done
 6. Compare two products: price per ml and ingredient overlap — done
 7. Insights page: most loved brands and products, well-reviewed products with a lower price per ml, price vs rating, most common ingredients — done
-8. Skin-type tags and filter (ingredient-based, with reasons)
-9. Today page: weather, UV and air quality from Open-Meteo
+8. Dropped (no step 8)
+9. Today page: live UV, humidity and US AQI from Open-Meteo, shown as information, plus general sun-protection guidance based on public UV index categories, and a link to the sunscreen list. No product recommendations.
 10. Research page: PubMed titles, journals, years and links
-11. MCP server (read-only access to the product data)
+11. MCP server (read-only access to the product data): search, compare, insights, weather and an avoid-list check
+12. Ingredient Intelligence
+    - 12a. Ingredient-name normalizer: names mapped to canonical names (exact, alias and fuzzy matching), with a reported match rate
+    - 12b. Official ingredient functions, and "has an EU restriction, see CosIng" notes, from the EU CosIng database (only after checking its data-use terms)
+    - 12c. "My avoid list" checker and a Products exclude filter, with common aliases such as Parfum/Fragrance and an optional EU fragrance-allergen list
+13. Engineering polish: GitHub Actions CI, a test hook, a claims-reviewer check, an automated scan of the pages for medical-claim wording, and screenshots
 
-Not planned: login, an in-app AI assistant, Indian product data.
+Not planned: login, an in-app AI assistant, Indian product data, product recommendations.
+
+**Data:** the product data is a March 2023 Sephora US snapshot. Prices, loves, ratings and reviews are as of then, not live.
 
 The Insights page shows what shoppers love and review on one retailer's site (loves, ratings and reviews from the dataset, not sales): the most loved brands and products, and the most common ingredients. Choose one product type in the dropdown to also see well-reviewed products (at least 50 reviews and a rating of at least 4.0) sorted by price per ml, and how the average rating differs across three price-per-ml bands. Ratings are averaged using each product's number of reviews as the weight, ratings with few reviews are ignored, and older products have had more time to collect loves and reviews. The bands show a pattern, not a cause. Prices are US prices, converted to rupees at the shown rate, and are approximate.
 
@@ -28,7 +35,7 @@ INR prices are converted from the US prices using the daily USD to INR rate from
 
 Some brands print a strength next to an ingredient (for example "Zinc Oxide 12.025%"). The product page shows it as "12.025% (stated by brand)". Strengths are never estimated: if a brand prints none, nothing is shown, and a missing percentage means "not stated", not "low". Unclear text is left as it was written.
 
-Skin-type tags are based only on ingredients and are not medical advice.
+Skin Index shows information only. It does not recommend products, make skin-type or skin-concern claims, or give medical advice. Patch-test new products, and see a dermatologist about skin concerns.
 
 ## Run it (Windows PowerShell)
 
