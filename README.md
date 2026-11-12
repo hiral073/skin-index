@@ -10,6 +10,7 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
 3. Product search — done
 4. Currency: show prices in INR (approximate, from a daily exchange rate) — done
 5. Product page: ingredients, price, price per ml — done
+   - 5b. Stated ingredient strengths, only where the brand prints them — done
 6. Compare two products: price per ml and ingredient overlap
 7. Insights page: price per ml by brand, most common ingredients
 8. Skin-type tags and filter (ingredient-based, with reasons)
@@ -20,6 +21,8 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
 Not planned: login, an in-app AI assistant, Indian product data.
 
 INR prices are converted from the US prices using the daily USD to INR rate from [Frankfurter](https://frankfurter.dev) (no API key). The rate is saved in the database and fetched at most once a day, so the first page load of the day needs internet. If the rate cannot be fetched, the last saved rate is shown and marked "older rate"; if none was ever saved, INR is hidden. The figures are approximate and are not Indian retail prices.
+
+Some brands print a strength next to an ingredient (for example "Zinc Oxide 12.025%"). The product page shows it as "12.025% (stated by brand)". Strengths are never estimated: if a brand prints none, nothing is shown, and a missing percentage means "not stated", not "low". Unclear text is left as it was written.
 
 Skin-type tags are based only on ingredients and are not medical advice.
 

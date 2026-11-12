@@ -23,6 +23,55 @@ def test_init_db_creates_tables(db_path):
     assert {"products", "ingredients", "product_ingredients", "exchange_rates"} <= names
 
 
+def product_ingredient_columns(db_path):
+    return [r["name"] for r in query(db_path, "PRAGMA table_info(product_ingredients)")]
+
+
+def test_new_database_has_stated_percent_column(db_path):
+    init_db(db_path)
+    assert "stated_percent" in product_ingredient_columns(db_path)
+
+
+def test_init_db_adds_stated_percent_to_an_older_database_and_keeps_rows(db_path):
+    with closing(sqlite3.connect(db_path)) as conn, conn:   # the schema before this column
+        conn.executescript(
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, brand TEXT NOT NULL,"
+            " category TEXT, price REAL, size_text TEXT, size_ml REAL, price_per_ml REAL,"
+            " ingredients_text TEXT);"
+            "CREATE TABLE ingredients (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);"
+            "CREATE TABLE product_ingredients (product_id INTEGER NOT NULL REFERENCES products(id)"
+            " ON DELETE CASCADE, ingredient_id INTEGER NOT NULL REFERENCES ingredients(id)"
+            " ON DELETE CASCADE, position INTEGER NOT NULL, PRIMARY KEY (product_id, ingredient_id));"
+            "INSERT INTO products (id, name, brand) VALUES (1, 'Old', 'Brand');"
+            "INSERT INTO ingredients (id, name) VALUES (1, 'Water');"
+            "INSERT INTO product_ingredients VALUES (1, 1, 1);"
+        )
+    assert "stated_percent" not in product_ingredient_columns(db_path)
+    init_db(db_path)
+    init_db(db_path)   # idempotent
+    assert "stated_percent" in product_ingredient_columns(db_path)
+    rows = query(db_path, "SELECT product_id, ingredient_id, position, stated_percent FROM product_ingredients")
+    assert [tuple(r) for r in rows] == [(1, 1, 1, None)]
+
+
+@pytest.mark.parametrize("bad", [0, -1, 100, 150])
+def test_stated_percent_must_be_between_0_and_100(db_path, bad):
+    init_db(db_path)
+    seed_db(db_path)
+    with closing(get_db(db_path)) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("UPDATE product_ingredients SET stated_percent = ?", (bad,))
+
+
+def test_stated_percent_accepts_null_and_a_value_in_range(db_path):
+    init_db(db_path)
+    seed_db(db_path)
+    with closing(get_db(db_path)) as conn, conn:
+        conn.execute("UPDATE product_ingredients SET stated_percent = 12.025 WHERE position = 1")
+    assert query(db_path, "SELECT COUNT(*) FROM product_ingredients WHERE stated_percent = 12.025")[0][0] > 0
+    assert query(db_path, "SELECT COUNT(*) FROM product_ingredients WHERE stated_percent IS NULL")[0][0] > 0
+
+
 def test_exchange_rates_survive_a_second_init_db(db_path):
     init_db(db_path)
     with closing(get_db(db_path)) as conn, conn:

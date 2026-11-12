@@ -18,15 +18,15 @@ def add_product(db_path, name="Bravo Cream", brand="Dew Labs", category="Moistur
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (name, brand, category, price, size_text, None, price_per_ml),
         ).lastrowid
-        for position, ingredient in ingredients:
+        for position, ingredient, *percent in ingredients:   # (position, name[, stated_percent])
             conn.execute("INSERT OR IGNORE INTO ingredients (name) VALUES (?)", (ingredient,))
             ingredient_id = conn.execute(
                 "SELECT id FROM ingredients WHERE name = ?", (ingredient,)
             ).fetchone()[0]
             conn.execute(
-                "INSERT INTO product_ingredients (product_id, ingredient_id, position)"
-                " VALUES (?, ?, ?)",
-                (product_id, ingredient_id, position),
+                "INSERT INTO product_ingredients (product_id, ingredient_id, position, stated_percent)"
+                " VALUES (?, ?, ?, ?)",
+                (product_id, ingredient_id, position, percent[0] if percent else None),
             )
     return product_id
 
@@ -76,6 +76,44 @@ def test_ingredients_are_numbered_in_label_order(client, product_id):
     items = [i.split("</li>")[0].strip() for i in html.split("<li>")[1:]]
     assert items == ["Water", "Glycerin", "Squalane", "Tocopherol"]
     assert "Ingredients are listed roughly from highest to lowest concentration." in html
+
+
+STRENGTH_NOTE = "Only some brands state strengths. A missing percentage means not stated, not low."
+
+
+def list_items(html):
+    return [i.split("</li>")[0] for i in html.split("<li>")[1:]]
+
+
+def test_stated_percent_badge_only_on_ingredients_that_have_one(app, client):
+    pid = add_product(
+        app.config["DATABASE"],
+        ingredients=[(1, "Water"), (2, "Zinc Oxide", 12.025), (3, "Glycerin"),
+                     (4, "Salicylic Acid", 2.0), (5, "Fragrance Compound", 0.0408)],
+    )
+    _, html = get_html(client, f"/products/{pid}")
+    items = list_items(html)
+    assert [i.split("<span")[0].strip() for i in items] == [
+        "Water", "Zinc Oxide", "Glycerin", "Salicylic Acid", "Fragrance Compound",
+    ]
+    assert "stated by brand" not in items[0] and "stated by brand" not in items[2]
+    assert "12.025% (stated by brand)" in items[1]
+    assert "2% (stated by brand)" in items[3] and "2.0%" not in items[3]
+    assert "0.0408% (stated by brand)" in items[4]
+    assert html.count("(stated by brand)") == 3
+    assert STRENGTH_NOTE in html
+
+
+def test_no_strength_note_when_no_ingredient_has_a_percent(client, product_id):
+    _, html = get_html(client, f"/products/{product_id}")
+    assert "stated by brand" not in html
+    assert "Only some brands state strengths" not in html
+
+
+def test_product_without_ingredients_shows_no_strength_note(app, client):
+    pid = add_product(app.config["DATABASE"], ingredients=[])
+    _, html = get_html(client, f"/products/{pid}")
+    assert "Only some brands state strengths" not in html
 
 
 def test_unknown_id_gives_a_friendly_404(client, product_id):

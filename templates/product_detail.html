@@ -48,10 +48,13 @@
     {% if product.ingredients %}
     <p class="ingredients-note">Ingredients are listed roughly from highest to lowest concentration.</p>
     <ol class="ingredient-list">
-        {% for name in product.ingredients %}
-        <li>{{ name }}</li>
+        {% for ingredient in product.ingredients %}
+        <li>{{ ingredient.name }}{% if ingredient.stated_percent is not none %} <span class="stated-percent">{{ ingredient.stated_percent | percent }}% (stated by brand)</span>{% endif %}</li>
         {% endfor %}
     </ol>
+    {% if product.ingredients | selectattr('stated_percent', 'ne', none) | list %}
+    <p class="ingredients-note">Only some brands state strengths. A missing percentage means not stated, not low.</p>
+    {% endif %}
     {% else %}
     <p>{{ na() }}</p>
     {% endif %}

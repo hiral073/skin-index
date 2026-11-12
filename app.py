@@ -142,6 +142,12 @@ def product_detail(id):
     )
 
 
+@app.template_filter("percent")
+def percent_filter(value):
+    """12.025 -> '12.025', 2.0 -> '2', 0.0408 -> '0.0408' (no exponent, no trailing zeros)."""
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
 @app.errorhandler(404)
 def not_found(error):
     return render_template("404.html"), 404

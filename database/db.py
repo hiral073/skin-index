@@ -23,10 +23,13 @@ CREATE TABLE IF NOT EXISTS ingredients (
     name TEXT NOT NULL UNIQUE
 );
 
+-- stated_percent is only ever a number the brand printed on the label (NULL
+-- when none); it is never inferred or computed.
 CREATE TABLE IF NOT EXISTS product_ingredients (
-    product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
-    position      INTEGER NOT NULL,
+    product_id     INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+    position       INTEGER NOT NULL,
+    stated_percent REAL CHECK (stated_percent IS NULL OR (stated_percent > 0 AND stated_percent < 100)),
     PRIMARY KEY (product_id, ingredient_id)
 );
 
@@ -79,6 +82,13 @@ def get_db(db_path=None):
 def init_db(db_path=None):
     with closing(get_db(db_path)) as conn:
         conn.executescript(SCHEMA)
+        # CREATE TABLE IF NOT EXISTS leaves an older product_ingredients as it was
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(product_ingredients)")}
+        if "stated_percent" not in columns:
+            conn.execute(
+                "ALTER TABLE product_ingredients ADD COLUMN stated_percent REAL"
+                " CHECK (stated_percent IS NULL OR (stated_percent > 0 AND stated_percent < 100))"
+            )
 
 
 def seed_db(db_path=None):

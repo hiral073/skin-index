@@ -634,6 +634,18 @@ a { color: inherit; text-decoration: none; }
 
 .ingredient-list li { padding: 0.15rem 0; break-inside: avoid; }
 
+.stated-percent {
+    display: inline-block;
+    margin-left: 0.25rem;
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 .not-found-action { margin-top: 1.5rem; }
 
 .pagination {

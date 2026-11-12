@@ -132,12 +132,12 @@ def add_product_with_ingredients(db_path, ingredients, **fields):
              fields.get("price", 20.0), fields.get("size_text", "100 mL"),
              fields.get("price_per_ml", 0.2)),
         ).lastrowid
-        for position, name in ingredients:
+        for position, name, *percent in ingredients:   # (position, name[, stated_percent])
             conn.execute("INSERT OR IGNORE INTO ingredients (name) VALUES (?)", (name,))
             iid = conn.execute("SELECT id FROM ingredients WHERE name = ?", (name,)).fetchone()[0]
             conn.execute(
-                "INSERT INTO product_ingredients (product_id, ingredient_id, position)"
-                " VALUES (?, ?, ?)", (pid, iid, position),
+                "INSERT INTO product_ingredients (product_id, ingredient_id, position, stated_percent)"
+                " VALUES (?, ?, ?, ?)", (pid, iid, position, percent[0] if percent else None),
             )
     return pid
 
@@ -149,15 +149,31 @@ def test_get_product_detail_returns_fields_and_ingredients_in_label_order(db_pat
     assert get_product_detail(pid, db_path) == {
         "id": pid, "name": "Bravo Cream", "brand": "Dew Labs", "category": "Moisturizers",
         "size_text": "100 mL", "price": 20.0, "price_per_ml": 0.2,
-        "ingredients": ["Water", "Glycerin", "Squalane"],
+        "ingredients": [
+            {"name": "Water", "stated_percent": None},
+            {"name": "Glycerin", "stated_percent": None},
+            {"name": "Squalane", "stated_percent": None},
+        ],
     }
+
+
+def test_get_product_detail_returns_stated_percent_per_ingredient(db_path):
+    pid = add_product_with_ingredients(
+        db_path, [(2, "Zinc Oxide", 12.025), (1, "Water"), (3, "Squalane")]
+    )
+    assert get_product_detail(pid, db_path)["ingredients"] == [
+        {"name": "Water", "stated_percent": None},
+        {"name": "Zinc Oxide", "stated_percent": 12.025},
+        {"name": "Squalane", "stated_percent": None},
+    ]
 
 
 def test_get_product_detail_only_returns_that_products_ingredients(db_path):
     first = add_product_with_ingredients(db_path, [(1, "Water"), (2, "Glycerin")])
     second = add_product_with_ingredients(db_path, [(1, "Water")], name="Other")
-    assert get_product_detail(first, db_path)["ingredients"] == ["Water", "Glycerin"]
-    assert get_product_detail(second, db_path)["ingredients"] == ["Water"]
+    names = lambda pid: [i["name"] for i in get_product_detail(pid, db_path)["ingredients"]]  # noqa: E731
+    assert names(first) == ["Water", "Glycerin"]
+    assert names(second) == ["Water"]
 
 
 def test_get_product_detail_keeps_missing_fields_as_none(db_path):
