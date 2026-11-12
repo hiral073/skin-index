@@ -36,12 +36,12 @@ Still out of scope: login, an in-app AI assistant, Indian product data. INR is o
 
 ## Roadmap
 
-Steps 1-3 are done. Build one step at a time, in this order:
+Steps 1-4 are done. Build one step at a time, in this order:
 
 1. Database setup (SQLite) — done
 2. Load and clean the dataset (pandas) — done
 3. Product search — done
-4. Currency: INR display
+4. Currency: INR display — done
 5. Product detail
 6. Compare
 7. Insights
@@ -53,16 +53,18 @@ Steps 1-3 are done. Build one step at a time, in this order:
 ## Architecture
 
 - `app.py`: single Flask app, module-level `app`. `/` renders `landing.html`; `/products` is the real search page (`products.html`). `/products/<int:id>`, `/compare`, `/insights` are still placeholder routes returning plain strings; their text carries the old step numbers (4/5/6), so follow the Roadmap numbering, not those strings. Replace a placeholder in place; templates/nav link to them via `url_for('products')` etc., so keep those endpoint function names.
-- `/products`: filters, sort and paging come from query args (`q`, `category`, `sort`, `page`; 24 per page). The database path is `app.config["DATABASE"]` (defaults to `database.db.DB_PATH`), so tests can point it at a temporary database.
+- `/products`: filters, sort and paging come from query args (`q`, `category`, `sort`, `page`; 24 per page). The database path is `app.config["DATABASE"]` (defaults to `database.db.DB_PATH`), so tests can point it at a temporary database. Columns: Product, Brand, Category, Size, Price (USD), and `≈ Price (₹)` (whole rupees, comma thousands separators) with a rate note under the table; with no rate, INR is not shown at all. Price per ml is not a column here, but it is still stored and still a sort option (`sort=price_per_ml`); `sort=price` sorts by the actual price.
 - `templates/`: `base.html` (navbar, Google Fonts, `{% block title %}`, `{% block head %}`, content blocks) is extended by page templates.
-- `database/db.py`: `get_db(db_path=None)` (Row factory, foreign keys on), `init_db()` (`CREATE TABLE IF NOT EXISTS`), `seed_db()` (5 sample products, no-op if products exist). Tables: `products`, `ingredients`, `product_ingredients` (`position` = label order). Prices are stored in USD (`price`, `price_per_ml`).
+- `database/db.py`: `get_db(db_path=None)` (Row factory, foreign keys on), `init_db()` (`CREATE TABLE IF NOT EXISTS`), `seed_db()` (5 sample products, no-op if products exist). Tables: `products`, `ingredients`, `product_ingredients` (`position` = label order), `exchange_rates` (`rate_date` = date the source publishes for, `fetched_on` = day we saved it; unique per base, quote, rate_date). Prices are stored in USD (`price`, `price_per_ml`). The loader empties only the three product tables, so saved rates survive a reload.
+- `database/services.py`: service functions shared by pages and later the MCP server. `get_usd_inr_rate(db_path=None, today=None)` returns `RateInfo(rate, rate_date, stale)` or `None`: a rate fetched today is reused with no network call; otherwise it fetches and saves; if the fetch fails it returns the newest saved rate with `stale=True`. After a failed fetch it does not retry for 15 minutes, so an outage cannot slow every page load. It calls `init_db()` first so older databases get the `exchange_rates` table. `inr_price(price_usd, rate)` gives whole rupees (halves round up) and is what `/products` shows; `inr_per_ml(price_per_ml_usd, rate)` rounds to 2 decimals and is kept for the compare and detail pages.
+- `live/currency.py`: `fetch_usd_inr()` is the only code that calls the network for rates (Frankfurter `https://api.frankfurter.dev/v1/latest`, no key, `requests`, 5 second timeout). It raises `CurrencyError` with a plain message on any failure. Frankfurter lists v1 as deprecated but available indefinitely (v2 is the documented current API); only this function needs to change if v1 goes away.
 - `database/load_data.py`: pandas loader for `data/product_info.csv` (Skincare rows only; sizes converted to `size_ml`; ingredient lists split into the two ingredient tables; drop reasons printed). Cleaning helpers (`parse_size_ml`, `split_ingredients`, `clean_products`) are unit-tested without the CSV.
 - `data/`: `data/*.csv` and `data/*.parquet` are gitignored, as is `skin_index.db`. The CSV must be present locally to run the loader.
-- `tests/conftest.py`: inserts project root into `sys.path`, imports `app` from `app.py`, and defines the `app` fixture (sets `TESTING=True` and gives each test its own empty temporary database via `app.config["DATABASE"]`). `pytest-flask` supplies the `client` fixture from it. `test_routes.py` asserts the remaining placeholder routes return 200, so update it when a placeholder gets a real implementation.
+- `tests/conftest.py`: inserts project root into `sys.path`, imports `app` from `app.py`, and defines the `app` fixture (sets `TESTING=True` and gives each test its own empty temporary database via `app.config["DATABASE"]`). An autouse fixture replaces `live.currency.requests.get` with a call that fails like an outage, so no test reaches the network and by default no rate exists; the `rate_api` fixture patches it with a controllable fake. `pytest-flask` supplies the `client` fixture from it. `test_routes.py` asserts the remaining placeholder routes return 200, so update it when a placeholder gets a real implementation.
 
 ## Architecture rules
 
-- All external HTTP calls live in a `live/` package. Every call has a timeout, a cache, and a clear error message the page can show.
+- All external HTTP calls live in a `live/` package and use `requests`. Every call has a timeout, a cache, and a clear error message the page can show.
 - Routes and MCP tools never call external APIs directly. They call service functions.
 - Tests never use the real network. Fake or stub the `live/` functions.
 - SQL is parameterized only. Never build SQL text from request or tool input.
@@ -94,7 +96,7 @@ Steps 1-3 are done. Build one step at a time, in this order:
 - MCP tools call the same service functions as the pages.
 
 ## Project rules
-- Stack: Flask, SQLite (sqlite3), pandas, pytest. No other frameworks.
+- Stack: Flask, SQLite (sqlite3), pandas, pytest, plus `requests` for HTTP in `live/`. No other frameworks.
 - Windows: activate venv with .\venv\Scripts\Activate.ps1, app runs on port 5001.
 - Build one step at a time (Steps 1-11 in the Roadmap and README). Do not start later steps.
 - After every change, run pytest and show the result.

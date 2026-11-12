@@ -1,4 +1,6 @@
+import re
 from contextlib import closing
+from datetime import date
 
 import pytest
 
@@ -45,9 +47,23 @@ def test_products_page_lists_products_with_details(catalog, client):
     html = response.get_data(as_text=True)
     for name, brand, category, *_ in PRODUCTS:
         assert name in html and brand in html and category in html
-    assert "$30.00" in html          # price
+    assert "$30.00" in html          # price (USD)
     assert "100 mL" in html          # size
-    assert "$0.200" in html          # price per ml
+    assert "per ml</th>" not in html  # price per ml is not a column (the sort option stays)
+    assert "$0.200" not in html
+
+
+def test_table_columns_in_order_without_a_rate(catalog, client):
+    html = client.get("/products").get_data(as_text=True)
+    headers = re.findall(r"<th[^>]*>(.*?)</th>", html)
+    assert headers == ["Product", "Brand", "Category", "Size", "Price (USD)"]
+
+
+def test_table_columns_in_order_with_a_rate(catalog, client):
+    today = date.today().isoformat()
+    save_rate(catalog.config["DATABASE"], 90.0, today, today)
+    headers = re.findall(r"<th[^>]*>(.*?)</th>", client.get("/products").get_data(as_text=True))
+    assert headers == ["Product", "Brand", "Category", "Size", "Price (USD)", "≈ Price (₹)"]
 
 
 def test_each_product_links_to_its_detail_page(catalog, client):
@@ -144,6 +160,86 @@ def test_no_matches_shows_empty_message(catalog, client):
     assert b"No products found" in response.data
     assert row_count(response) == 0
     assert b"Next" not in response.data
+
+
+def save_rate(db_path, rate, rate_date, fetched_on):
+    with closing(get_db(db_path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO exchange_rates (rate_date, base, quote, rate, fetched_on)"
+            " VALUES (?, 'USD', 'INR', ?, ?)",
+            (rate_date, rate, fetched_on),
+        )
+
+
+def test_inr_column_and_note_with_todays_rate(catalog, client):
+    save_rate(catalog.config["DATABASE"], 90.0, date.today().isoformat(), date.today().isoformat())
+    html = client.get("/products").get_data(as_text=True)
+    assert "≈ Price (₹)" in html
+    assert "₹1,800" in html          # Bravo Cream: $20 x 90
+    assert "₹2,700" in html          # Alpha Serum: $30 x 90
+    assert "₹900" in html            # Charlie Gel: $10 x 90
+    assert "₹450" in html            # delta Toner: $5 x 90
+    assert "per ml</th>" not in html
+    assert f"Converted from US prices at 1 USD = ₹90.00 ({date.today().isoformat()})." in html
+    assert "Approximate, not Indian retail prices." in html
+    assert "(older rate)" not in html
+
+
+def test_inr_note_says_older_rate_when_stale(catalog, client):
+    save_rate(catalog.config["DATABASE"], 88.5, "2026-01-02", "2026-01-02")
+    html = client.get("/products").get_data(as_text=True)  # API is offline in tests
+    assert "₹1,770" in html          # Bravo Cream: $20 x 88.5
+    assert "1 USD = ₹88.50 (2026-01-02). Approximate, not Indian retail prices. (older rate)" in html
+
+
+def test_inr_fetched_from_api_when_no_rate_saved(catalog, client, rate_api):
+    html = client.get("/products").get_data(as_text=True)
+    assert "₹1,874" in html          # Bravo Cream: $20 x 93.69 = 1873.8
+    assert "1 USD = ₹93.69 (2026-11-11)" in html
+    client.get("/products")
+    assert len(rate_api.calls) == 1  # second page load reuses the saved rate
+
+
+def test_inr_hidden_when_no_rate_was_ever_saved(catalog, client):
+    html = client.get("/products").get_data(as_text=True)  # API is offline in tests
+    assert "₹" not in html
+    assert "Price (USD)" in html
+    assert "Converted from" not in html
+    assert "Approximate" not in html
+    assert product_names(client.get("/products")) != []    # USD table still works
+
+
+def test_inr_price_has_thousands_separators_and_whole_rupees(app, client):
+    today = date.today().isoformat()
+    save_rate(app.config["DATABASE"], 93.0, today, today)
+    add_products(app.config["DATABASE"], [("Luxe Cream", "Pricey", "Moisturizers", 120.0, 50.0)])
+    html = client.get("/products").get_data(as_text=True)
+    assert "₹11,160" in html         # $120 x 93
+    assert "$120.00" in html
+
+
+def test_inr_price_is_rounded_to_a_whole_rupee(app, client):
+    today = date.today().isoformat()
+    save_rate(app.config["DATABASE"], 93.69, today, today)
+    add_products(app.config["DATABASE"], [("Odd Price", "Brand", "Serums", 12.34, 30.0)])
+    html = client.get("/products").get_data(as_text=True)
+    assert "₹1,156" in html          # 12.34 x 93.69 = 1156.1346
+    assert "1,156.13" not in html
+
+
+def test_sorting_by_price_per_ml_works_without_showing_it(catalog, client):
+    today = date.today().isoformat()
+    save_rate(catalog.config["DATABASE"], 90.0, today, today)
+    response = client.get("/products", query_string={"sort": "price_per_ml"})
+    assert product_names(response) == ["delta Toner", "Bravo Cream", "Alpha Serum", "Charlie Gel"]
+    assert "per ml</th>" not in response.get_data(as_text=True)
+    assert "$0.200" not in response.get_data(as_text=True)
+
+
+def test_sorting_by_price_uses_the_actual_price(catalog, client):
+    # price order (5, 10, 20, 30) differs from price-per-ml order (0.02, 0.2, 1.0, 1.0)
+    response = client.get("/products", query_string={"sort": "price"})
+    assert product_names(response) == ["delta Toner", "Charlie Gel", "Bravo Cream", "Alpha Serum"]
 
 
 @pytest.fixture

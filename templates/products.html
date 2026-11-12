@@ -33,12 +33,12 @@
         <table class="product-table">
             <thead>
                 <tr>
-                    <th>Name</th>
+                    <th>Product</th>
                     <th>Brand</th>
                     <th>Category</th>
-                    <th class="num">Price</th>
                     <th>Size</th>
-                    <th class="num">Price per ml</th>
+                    <th class="num">Price (USD)</th>
+                    {% if rate %}<th class="num">≈ Price (₹)</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -47,14 +47,18 @@
                     <td><a class="product-link" href="{{ url_for('product_detail', id=p['id']) }}">{{ p['name'] }}</a></td>
                     <td>{{ p['brand'] }}</td>
                     <td>{{ p['category'] or '—' }}</td>
-                    <td class="num">${{ '%.2f' | format(p['price']) }}</td>
                     <td>{{ p['size_text'] }}</td>
-                    <td class="num">${{ '%.3f' | format(p['price_per_ml']) }}</td>
+                    <td class="num">${{ '%.2f' | format(p['price']) }}</td>
+                    {% if rate %}<td class="num">₹{{ '{:,}'.format(p['inr_price']) }}</td>{% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    {% if rate %}
+    <p class="rate-note">Converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}). Approximate, not Indian retail prices.{% if rate.stale %} (older rate){% endif %}</p>
+    {% endif %}
 
     <nav class="pagination" aria-label="Pagination">
         {% if prev_url %}

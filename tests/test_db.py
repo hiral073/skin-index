@@ -20,7 +20,30 @@ def test_init_db_creates_tables(db_path):
     init_db(db_path)
     rows = query(db_path, "SELECT name FROM sqlite_master WHERE type = 'table'")
     names = {row["name"] for row in rows}
-    assert {"products", "ingredients", "product_ingredients"} <= names
+    assert {"products", "ingredients", "product_ingredients", "exchange_rates"} <= names
+
+
+def test_exchange_rates_survive_a_second_init_db(db_path):
+    init_db(db_path)
+    with closing(get_db(db_path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO exchange_rates (rate_date, base, quote, rate, fetched_on)"
+            " VALUES ('2026-11-11', 'USD', 'INR', 93.69, '2026-11-11')"
+        )
+    init_db(db_path)
+    assert query(db_path, "SELECT COUNT(*) FROM exchange_rates")[0][0] == 1
+
+
+def test_exchange_rates_are_unique_per_pair_and_date(db_path):
+    init_db(db_path)
+    insert = (
+        "INSERT INTO exchange_rates (rate_date, base, quote, rate, fetched_on)"
+        " VALUES ('2026-11-11', 'USD', 'INR', 93.69, '2026-11-11')"
+    )
+    with closing(get_db(db_path)) as conn:
+        conn.execute(insert)
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(insert)
 
 
 def test_init_db_is_idempotent(db_path):

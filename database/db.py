@@ -29,6 +29,19 @@ CREATE TABLE IF NOT EXISTS product_ingredients (
     position      INTEGER NOT NULL,
     PRIMARY KEY (product_id, ingredient_id)
 );
+
+-- rate_date is the date the source publishes the rate for (the last working
+-- day at weekends); fetched_on is the day we saved it, so a weekend rate is
+-- not fetched again on every page load.
+CREATE TABLE IF NOT EXISTS exchange_rates (
+    id         INTEGER PRIMARY KEY,
+    rate_date  TEXT NOT NULL,
+    base       TEXT NOT NULL,
+    quote      TEXT NOT NULL,
+    rate       REAL NOT NULL,
+    fetched_on TEXT NOT NULL,
+    UNIQUE (base, quote, rate_date)
+);
 """
 
 # (name, brand, category, price, size_text, size_ml, ingredients in label order)

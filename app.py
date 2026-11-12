@@ -4,6 +4,7 @@ from contextlib import closing
 from flask import Flask, render_template, request, url_for
 
 from database.db import DB_PATH, get_db
+from database.services import get_usd_inr_rate, inr_price
 
 PAGE_SIZE = 24
 SORT_OPTIONS = {
@@ -21,7 +22,7 @@ FILTER_SQL = """
 """
 COUNT_SQL = "SELECT COUNT(*) " + FILTER_SQL
 PRODUCTS_SQL = (
-    "SELECT id, name, brand, category, price, size_text, price_per_ml "
+    "SELECT id, name, brand, category, price, size_text "
     + FILTER_SQL
     + """
     ORDER BY
@@ -74,6 +75,12 @@ def products():
         ).fetchall()
         categories = [r["category"] for r in conn.execute(CATEGORIES_SQL)]
 
+    rate = get_usd_inr_rate(app.config["DATABASE"])  # None: no INR column at all
+    rows = [
+        {**row, "inr_price": inr_price(row["price"], rate and rate.rate)}
+        for row in map(dict, rows)
+    ]
+
     def page_url(n):
         return url_for("products", q=q or None, category=category or None, sort=sort, page=n)
 
@@ -86,6 +93,7 @@ def products():
         sort=sort,
         sort_options=SORT_OPTIONS,
         categories=categories,
+        rate=rate,
         page=page,
         pages=pages,
         prev_url=page_url(page - 1) if page > 1 else None,
