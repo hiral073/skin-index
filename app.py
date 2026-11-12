@@ -3,10 +3,12 @@ from contextlib import closing
 
 from flask import Flask, abort, render_template, request, url_for
 
+from content import today_tips as today_content
 from database.db import DB_PATH, get_db
 from database.services import (
-    compare_products, escape_like, get_insights, get_product_detail, get_usd_inr_rate,
-    inr_per_ml, inr_price, list_brands_in_group, list_groups, list_products_in_group,
+    TODAY_CONFIG, compare_products, escape_like, get_insights, get_product_detail,
+    get_today_conditions, get_usd_inr_rate, inr_per_ml, inr_price, list_brands_in_group,
+    list_groups, list_products_in_group,
 )
 
 PAGE_SIZE = 24
@@ -332,6 +334,57 @@ def build_takeaways(data):
                 f"{config['well_reviewed_min_rating']:.1f}."
             )
     return [s for s in sentences if s]
+
+
+def uv_timeline_sentences(data):
+    """The timeline sentences for the full UV card (today's peak UV is 3 or higher)."""
+    texts, level = today_content.TIMELINE, TODAY_CONFIG["sun_protection_from_uv"]
+    timeline = data["timeline"]
+    if not timeline["available"]:
+        return [texts["unavailable"]]
+    sentences = []
+    if timeline["reaches"]:
+        ranges = " and ".join(f"{r['from']} to {r['to']}" for r in timeline["ranges"])
+        sentences.append(texts["reaches"].format(level=level, ranges=ranges))
+    # when no hourly average reaches the level, only the peak hour is given
+    peak = timeline["peak"]
+    sentences.append(texts["peak"].format(span=f"{peak['from']}–{peak['to']}", uv=peak["uv"]))
+    return sentences
+
+
+def tip_cards(data):
+    """The weather tips card, if the weather fits a group (otherwise nothing), with link URLs."""
+    tips, cards = data["tips"], []
+    for group in tips["groups"]:
+        links = [
+            {"label": link["label"],
+             "url": url_for("products", **{k: v for k, v in link.items() if k != "label"})}
+            for link in today_content.TIP_LINKS.get(group, [])
+        ]
+        cards.append({"title": today_content.HEADLINES[tips["headline"]],
+                      "tips": today_content.TIP_GROUPS[group], "links": links})
+    return cards
+
+
+@app.route("/today")
+def today():
+    city = request.args.get("city")
+    data = get_today_conditions(
+        city=city, latitude=request.args.get("lat"), longitude=request.args.get("lon"),
+        label=request.args.get("label"),
+    )
+    # what the city box shows: what was typed, else the place being shown
+    place = data["place"]
+    typed = " ".join((city or "").split())[:60]
+    return render_template(
+        "today.html", data=data, place=place,
+        city_text=typed or (place["name"] if place else ""),
+        sunscreen_url=url_for("products", category="Sunscreen"),
+        content=today_content,
+        timeline_sentences=uv_timeline_sentences(data) if data["guidance"]["uv_card"] == "full" else [],
+        extra_steps=today_content.EXTRA_STEPS.get(data["guidance"]["extra_steps"]),
+        tip_cards=tip_cards(data) if place else [],
+    )
 
 
 @app.route("/insights")

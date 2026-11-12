@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}Today · Skin Index{% endblock %}
+
+{% macro na() %}<span class="not-available">Not available</span>{% endmacro %}
+
+{% macro tile(label, value, sub) %}
+<div class="tile">
+    <div class="tile-label">{{ label }}</div>
+    <div class="tile-value">{{ value }}</div>
+    {% if sub %}<div class="tile-sub">{{ sub }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro source(name) %}{% if name %}<span class="tip-source">Source: {{ name }}</span>{% endif %}{% endmacro %}
+
+{% block content %}
+<section class="today-page">
+    <h1 class="page-title">Today</h1>
+    <p class="compare-intro">Live conditions for a city, shown as general information.</p>
+
+    <form class="filter-bar" method="get" action="{{ url_for('today') }}">
+        <label class="picker-label" for="city">City</label>
+        <input class="form-input" type="text" id="city" name="city" value="{{ city_text }}" maxlength="60"
+               placeholder="For example Pune" autocomplete="off">
+        <button class="btn-primary" type="submit">Show</button>
+    </form>
+
+    {% if data.status == 'invalid' %}
+    <p class="notice">{% if data.query is none and request.args.get('city') %}Please enter a city name using letters, numbers, spaces, hyphens, apostrophes, commas or full stops (2 to 60 characters).{% else %}That place link isn't valid. Please search for a city instead.{% endif %}</p>
+    {% elif data.status == 'no_match' %}
+    <p class="notice">We couldn't find a place called “{{ data.query }}”. Check the spelling, or try a larger city nearby.</p>
+    {% elif data.status == 'unavailable' and not place %}
+    <p class="notice">We couldn't look up that city right now. Please try again in a few minutes.</p>
+    {% elif data.status == 'unavailable' %}
+    <p class="notice">We couldn't get live conditions for {{ [place.name, place.region, place.country] | select | join(', ') }} right now. Please try again in a few minutes.</p>
+    {% elif data.status == 'choose' %}
+    <h2 class="section-title">Several places match “{{ data.query }}”</h2>
+    <p class="picker-hint">Pick one:</p>
+    <ul class="place-choices">
+        {% for c in data.choices %}
+        {% set where = [c.name, c.region, c.country] | select | join(', ') %}
+        <li><a href="{{ url_for('today', lat=c.latitude, lon=c.longitude, label=where) }}">{{ where }}</a></li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if data.status == 'ok' %}
+    <h2 class="section-title">{{ [place.name, place.region, place.country] | select | join(', ') }}</h2>
+    {% if data.local_time %}<p class="picker-hint">Local time there: {{ data.local_time.replace('T', ' ') }}</p>{% endif %}
+
+    {% set uv = data.uv %}
+    {% set aqi = data.aqi %}
+    <div class="tiles">
+        {{ tile('UV now', uv.now if uv and uv.now is not none else na(), uv.now_category if uv and uv.now is not none else '') }}
+        {{ tile("UV today's max", uv.max if uv and uv.max is not none else na(), uv.max_category if uv and uv.max is not none else '') }}
+        {{ tile('Humidity', ('%.0f' | format(data.humidity)) ~ '%' if data.humidity is not none else na(), '') }}
+        {{ tile('Temperature', ('%.1f' | format(data.temperature_c)) ~ ' °C' if data.temperature_c is not none else na(), '') }}
+        {{ tile('US AQI', aqi.value if aqi else na(), (aqi.category ~ (' · PM2.5 ' ~ ('%.1f' | format(aqi.pm2_5)) ~ ' µg/m³' if aqi.pm2_5 is not none else '')) if aqi else '') }}
+    </div>
+
+    {% if 'conditions' in data.missing %}<p class="picker-hint">Temperature, humidity and UV aren't available right now.</p>{% endif %}
+    {% if 'air_quality' in data.missing %}<p class="picker-hint">Air quality isn't available right now.</p>{% endif %}
+    <p class="picker-hint">Humidity, temperature and air quality are shown for information only.</p>
+    {% if data.guidance.check_advisories %}
+    <p class="notice">Air quality is above Moderate. Check your local health advisories.</p>
+    {% endif %}
+    {% endif %}
+
+    {% if place and data.status in ('ok', 'unavailable') %}
+    {% if tip_cards %}
+    <h2 class="section-title">{{ content.TIPS_CARD_TITLE }}</h2>
+    <div class="guidance" id="weather-tips">
+        {% for card in tip_cards %}
+        <h3>{{ card.title }}</h3>
+        <ul class="tip-list">
+            {% for tip in card.tips %}<li>{{ tip.text }} {{ source(tip.source) }}</li>{% endfor %}
+        </ul>
+        {% if card.links %}
+        <p class="guidance-link">{% for link in card.links %}<a class="btn-ghost" href="{{ link.url }}">{{ link.label }}</a> {% endfor %}</p>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <h2 class="section-title">{{ content.SUN_PROTECTION.title }}</h2>
+    <div class="guidance" id="sun-protection">
+        {% if data.guidance.uv_card == 'full' %}
+        <h3>{{ content.TIMELINE.title }}</h3>
+        {% for sentence in timeline_sentences %}<p>{{ sentence }}</p>{% endfor %}
+
+        <p>{{ content.SUN_PROTECTION.text }} {{ source(content.SUN_PROTECTION.source) }}</p>
+        {% if extra_steps %}<p>{{ extra_steps.text }} {{ source(extra_steps.source) }}</p>{% endif %}
+
+        <h3>{{ content.REMINDERS.title }}</h3>
+        <ul class="tip-list">
+            {% for tip in content.REMINDERS.tips %}<li>{{ tip }}</li>{% endfor %}
+        </ul>
+
+        {% if data.guidance.show_sunscreen_link %}
+        <p class="guidance-link"><a class="btn-primary" href="{{ sunscreen_url }}">{{ content.SUNSCREEN_LINK.label }}</a>
+            <span class="picker-hint">{{ content.SUNSCREEN_LINK.note }}</span></p>
+        {% endif %}
+        {% elif data.guidance.uv_card == 'low' %}
+        <p>{{ content.UV_LOW.text }} {{ source(content.UV_LOW.source) }}</p>
+        {% elif data.guidance.uv_card == 'very_low' %}
+        <p>{{ content.UV_VERY_LOW }}</p>
+        {% else %}
+        <p>{{ content.TIMELINE.no_uv }}</p>
+        {% endif %}
+    </div>
+
+    <p class="picker-hint sources-note">{{ content.SOURCES_NOTE }}</p>
+    {% endif %}
+
+    <p class="today-disclaimer">Live conditions, general information only. Not medical or dermatological advice.</p>
+    <p class="attribution">Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a>.
+        Air quality data from CAMS (Copernicus Atmosphere Monitoring Service), via Open-Meteo.com.
+        Location data from <a href="https://www.geonames.org/">GeoNames</a>.</p>
+</section>
+{% endblock %}

@@ -1,11 +1,14 @@
+import math
+import re
 import time
 from collections import namedtuple
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from database.db import COMPARE_DROPDOWN_MAX, get_db, init_db
 from live.currency import CurrencyError, fetch_usd_inr
+from live.weather import WeatherError, fetch_air_quality, fetch_forecast, search_places
 
 # stale is True when the rate is older than today's and today's fetch failed
 RateInfo = namedtuple("RateInfo", ["rate", "rate_date", "stale"])
@@ -479,6 +482,251 @@ def get_insights(group=None, db_path=None):
         "price_bands": price_bands,
         "ingredients": ingredients,
     }
+
+
+# ------------------------------------------------------------------ #
+# Today: live conditions for a city                                   #
+# ------------------------------------------------------------------ #
+
+# Every threshold and category label the Today page uses. UV and AQI are rounded half up to
+# whole numbers before they are put in a category (public UV index values are whole numbers).
+TODAY_CONFIG = {
+    "default_place": {"name": "Pune", "region": "Maharashtra", "country": "India",
+                      "latitude": 18.51957, "longitude": 73.85535},
+    "uv_categories": [(2, "Low"), (5, "Moderate"), (7, "High"), (10, "Very high"), (None, "Extreme")],
+    "aqi_categories": [
+        (50, "Good"), (100, "Moderate"), (150, "Unhealthy for sensitive groups"),
+        (200, "Unhealthy"), (300, "Very unhealthy"), (None, "Hazardous"),
+    ],
+    "sun_protection_from_uv": 3,     # UV at which an hour joins the timeline, the extra steps start and the sunscreen link shows
+    "very_high_from_uv": 8,          # the stronger extra steps start here
+    "very_low_below_uv": 1,          # below this peak UV (whole number) the UV card only says UV is very low
+    "advisory_above_aqi": 100,       # "check local health advisories" above Moderate
+    "cool_at_or_below_c": 15,        # cool-or-dry tips: temperature at or below this (Celsius)...
+    "dry_at_or_below_percent": 35,   # ...or relative humidity at or below this
+    "hot_at_or_above_c": 30,         # hot-and-humid tips: temperature at or above this...
+    "humid_at_or_above_percent": 60, # ...and relative humidity at or above this
+    "max_city_length": 60,
+    "max_label_length": 100,
+}
+
+
+def whole_number(value):
+    """A number rounded half up to a whole int (2.5 -> 3)."""
+    return int(Decimal(str(value)).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def category_for(value, categories):
+    """The label for a whole-number value; categories are (highest value in it or None, label)."""
+    for highest, label in categories:
+        if highest is None or value <= highest:
+            return label
+
+
+def clean_place_text(text, max_length, allow_parentheses=False):
+    """A city (or place label) as plain text, or None if it is unusable.
+
+    Spaces are collapsed. Only letters, digits, spaces, hyphens, apostrophes, commas and full
+    stops are kept (plus brackets for a label); anything that could be a link, markup or a
+    path ("/", ":", "<", "%", "http", "www", "a.b") is refused.
+    """
+    if not isinstance(text, str):
+        return None
+    text = re.sub(r"\s+", " ", text).strip()
+    if not 2 <= len(text) <= max_length:
+        return None
+    allowed = r"[\w .,'’()\-]+" if allow_parentheses else r"[\w .,'’\-]+"  # includes the curly apostrophe
+    if not re.fullmatch(allowed, text) or "_" in text or not any(c.isalnum() for c in text):
+        return None
+    if re.search(r"\w\.\w", text) or text.casefold().startswith(("www", "http")):
+        return None
+    return text
+
+
+def parse_coordinates(latitude, longitude):
+    """(latitude, longitude) as floats, or None unless both are finite and in range."""
+    try:
+        if isinstance(latitude, bool) or isinstance(longitude, bool):
+            return None
+        latitude, longitude = float(latitude), float(longitude)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return None
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+    return latitude, longitude
+
+
+def _hour_label(moment):
+    return moment.strftime("%H:%M")
+
+
+def uv_timeline(hourly):
+    """The hours today with a UV index of 3 or higher, and the peak hour.
+
+    `hourly` is [{"time", "uv"}], each value the average of the hour ending at "time", so each
+    entry covers the hour before its time. Values are put in whole numbers (half up) before they
+    are compared with the threshold, and touching hours are joined into one range.
+    Returns {"available", "reaches", "ranges": [{"from", "to"}], "peak": {"from", "to", "uv"} or None}.
+    """
+    if not hourly:
+        return {"available": False, "reaches": False, "ranges": [], "peak": None}
+    advised_from = TODAY_CONFIG["sun_protection_from_uv"]
+    spans = []
+    for entry in hourly:
+        end = datetime.strptime(entry["time"], "%Y-%m-%dT%H:%M")
+        spans.append((end - timedelta(hours=1), end, whole_number(entry["uv"]), entry["uv"]))
+    ranges = []
+    for start, end, uv, _raw in spans:
+        if uv < advised_from:
+            continue
+        if ranges and ranges[-1][1] == start:
+            ranges[-1][1] = end
+        else:
+            ranges.append([start, end])
+    start, end, uv, _raw = max(spans, key=lambda s: (s[3], -s[0].timestamp()))   # the first of equal highest hours
+    return {
+        "available": True,
+        "reaches": bool(ranges),
+        "ranges": [{"from": _hour_label(a), "to": _hour_label(b)} for a, b in ranges],
+        "peak": {"from": _hour_label(start), "to": _hour_label(end), "uv": uv},
+    }
+
+
+def get_today_conditions(city=None, latitude=None, longitude=None, label=None):
+    """Live conditions for a place, as plain data (numbers, category names, flags; no HTML, no texts).
+
+    The place is, in order: coordinates (with an optional label), a city name looked up with
+    the geocoding service, or the default place. The values are information only; no value is
+    ever made up, so anything the services could not give is None and listed in "missing".
+
+    Returns {"status", "query", "place", "choices", "local_time", "uv", "humidity",
+    "temperature_c", "aqi", "timeline", "guidance", "tips", "missing"}:
+    - status: "ok" (some or all conditions found), "choose" (several places match; see choices),
+      "no_match", "invalid" (unusable city text or coordinates) or "unavailable" (a service
+      could not be reached and nothing could be shown).
+    - place / choices: {"name", "region", "country", "latitude", "longitude"}; choices has up to 5.
+    - uv: {"now", "now_category", "max", "max_category"} in whole numbers, or None.
+    - aqi: {"value", "category", "pm2_5"} or None. humidity is a percent, temperature_c is Celsius.
+    - timeline: uv_timeline() of today's hourly UV.
+    - guidance: {"uv_card", "extra_steps", "show_sunscreen_link", "check_advisories"}. All the UV
+      fields depend on today's peak UV (UV now if there is no peak), as a whole number: uv_card is
+      "full" (3 or higher), "low" (1 to 2), "very_low" (below 1) or None when no UV is known;
+      extra_steps is "none" (0 to 2), "moderate_to_high" (3 to 7), "very_high" (8 and up) or None;
+      the sunscreen link shows at 3 or higher. check_advisories is True when the AQI is above Moderate.
+    - tips: {"groups": [] or ["cool_dry"] or ["hot_humid"] when the weather fits,
+      "headline": None, "cool_dry", "cool", "dry" or "hot_humid"}. cool_dry applies at the cool
+      temperature cutoff or lower, or the dry humidity cutoff or lower; hot_humid needs both the
+      hot and the humid cutoff. An unknown temperature or humidity never triggers a group.
+    - missing: parts that could not be found: "conditions", "uv", "humidity", "temperature", "air_quality".
+    """
+    config = TODAY_CONFIG
+    result = {
+        "status": None, "query": None, "place": None, "choices": [], "local_time": None, "uv": None,
+        "humidity": None, "temperature_c": None, "aqi": None,
+        "timeline": {"available": False, "reaches": False, "ranges": [], "peak": None},
+        "guidance": {"uv_card": None, "extra_steps": None, "show_sunscreen_link": False, "check_advisories": False},
+        "tips": {"groups": [], "headline": None},
+        "missing": [],
+    }
+
+    if latitude is not None or longitude is not None:
+        coordinates = parse_coordinates(latitude, longitude)
+        if coordinates is None:
+            result["status"] = "invalid"
+            return result
+        name = clean_place_text(label, config["max_label_length"], allow_parentheses=True) or "Selected place"
+        place = {"name": name, "region": None, "country": None,
+                 "latitude": coordinates[0], "longitude": coordinates[1]}
+    elif city is not None and str(city).strip():
+        query = clean_place_text(city, config["max_city_length"])
+        result["query"] = query
+        if query is None:
+            result["status"] = "invalid"
+            return result
+        try:
+            places = search_places(query)
+        except WeatherError:
+            result["status"] = "unavailable"
+            return result
+        if not places:
+            result["status"] = "no_match"
+            return result
+        if len(places) > 1:
+            result["status"], result["choices"] = "choose", places
+            return result
+        place = places[0]
+    else:
+        place = dict(config["default_place"])
+    result["place"] = place
+
+    forecast = air = None
+    try:
+        forecast = fetch_forecast(place["latitude"], place["longitude"])
+    except WeatherError:
+        result["missing"].append("conditions")
+    try:
+        air = fetch_air_quality(place["latitude"], place["longitude"])
+    except WeatherError:
+        result["missing"].append("air_quality")
+    if forecast is None and air is None:
+        result["status"] = "unavailable"
+        return result
+    result["status"] = "ok"
+    result["local_time"] = (forecast or {}).get("time") or (air or {}).get("time")
+
+    guidance = result["guidance"]
+    if forecast is not None:
+        now = None if forecast["uv_now"] is None else whole_number(forecast["uv_now"])
+        peak = None if forecast["uv_max"] is None else whole_number(forecast["uv_max"])
+        if now is None and peak is None:
+            result["missing"].append("uv")
+        else:
+            result["uv"] = {
+                "now": now, "now_category": None if now is None else category_for(now, config["uv_categories"]),
+                "max": peak, "max_category": None if peak is None else category_for(peak, config["uv_categories"]),
+            }
+            level = peak if peak is not None else now         # today's peak UV decides the extra steps
+            if level >= config["very_high_from_uv"]:
+                guidance["extra_steps"] = "very_high"
+            elif level >= config["sun_protection_from_uv"]:
+                guidance["extra_steps"] = "moderate_to_high"
+            else:
+                guidance["extra_steps"] = "none"
+            guidance["show_sunscreen_link"] = level >= config["sun_protection_from_uv"]
+            guidance["uv_card"] = ("full" if level >= config["sun_protection_from_uv"]
+                                   else "low" if level >= config["very_low_below_uv"] else "very_low")
+        result["timeline"] = uv_timeline(forecast.get("uv_hourly"))
+        result["humidity"] = forecast["humidity"]
+        result["temperature_c"] = forecast["temperature_c"]
+        if forecast["humidity"] is None:
+            result["missing"].append("humidity")
+        if forecast["temperature_c"] is None:
+            result["missing"].append("temperature")
+
+    temperature, humidity = result["temperature_c"], result["humidity"]
+    cool = temperature is not None and temperature <= config["cool_at_or_below_c"]
+    dry = humidity is not None and humidity <= config["dry_at_or_below_percent"]
+    hot_humid = (temperature is not None and humidity is not None
+                 and temperature >= config["hot_at_or_above_c"] and humidity >= config["humid_at_or_above_percent"])
+    tips = result["tips"]
+    if cool or dry:
+        tips["groups"].append("cool_dry")
+        tips["headline"] = "cool_dry" if cool and dry else "cool" if cool else "dry"
+    elif hot_humid:
+        tips["groups"].append("hot_humid")
+        tips["headline"] = "hot_humid"
+
+    if air is not None:
+        if air["us_aqi"] is not None:
+            value = whole_number(air["us_aqi"])
+            result["aqi"] = {"value": value, "category": category_for(value, config["aqi_categories"]),
+                             "pm2_5": air["pm2_5"]}
+            guidance["check_advisories"] = value > config["advisory_above_aqi"]
+        else:
+            result["missing"].append("air_quality")
+    return result
 
 
 def inr_price(price_usd, rate):
