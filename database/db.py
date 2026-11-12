@@ -41,6 +41,17 @@ CREATE TABLE IF NOT EXISTS product_ingredients (
     PRIMARY KEY (product_id, ingredient_id)
 );
 
+-- Saved PubMed searches (Research page): the cleaned search text, whether it was "reviews only",
+-- when it was fetched (UTC) and the parsed papers as JSON. Reused for 24 hours; an older copy
+-- is shown only if PubMed cannot be reached.
+CREATE TABLE IF NOT EXISTS pubmed_searches (
+    term         TEXT NOT NULL,
+    reviews_only INTEGER NOT NULL,
+    fetched_at   TEXT NOT NULL,
+    papers_json  TEXT NOT NULL,
+    PRIMARY KEY (term, reviews_only)
+);
+
 -- rate_date is the date the source publishes the rate for (the last working
 -- day at weekends); fetched_on is the day we saved it, so a weekend rate is
 -- not fetched again on every page load.

@@ -11,6 +11,7 @@ import requests  # noqa: E402
 from app import app as flask_app  # noqa: E402
 from database.db import init_db  # noqa: E402
 from database.services import reset_rate_cooldown  # noqa: E402
+import live.pubmed  # noqa: E402
 import live.weather  # noqa: E402
 
 
@@ -26,8 +27,9 @@ def no_real_network(monkeypatch):
 
 
 class FakeResponse:
-    def __init__(self, payload, status):
-        self.payload, self.status = payload, status
+    def __init__(self, payload, status, headers=None):
+        self.payload, self.status, self.headers = payload, status, headers or {}
+        self.status_code = status
 
     def raise_for_status(self):
         if self.status >= 400:
@@ -166,3 +168,94 @@ def weather_api(monkeypatch, weather_clock):
     monkeypatch.setattr("live.weather.requests.get", api)
     return api
 
+
+class PubmedClock:
+    """Stands in for time.monotonic and time.sleep in live.pubmed: sleeping just moves the clock, and
+    every sleep is recorded, so no test really waits."""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.sleeps = []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+@pytest.fixture(autouse=True)
+def pubmed_clock(monkeypatch):
+    monkeypatch.delenv("NCBI_EMAIL", raising=False)         # a developer's own variable must never leak into a test
+    clock = PubmedClock()
+    monkeypatch.setattr(live.pubmed, "_clock", clock)
+    monkeypatch.setattr(live.pubmed, "_sleep", clock.sleep)
+    live.pubmed.reset_state()
+    return clock
+
+
+def pubmed_record(pmid, title, journal="Journal of Tests", year="2021 Mar", types=("Journal Article",), source=None):
+    """One esummary record in PubMed's shape."""
+    return {"uid": str(pmid), "title": title, "fulljournalname": journal, "source": source or journal,
+            "pubdate": year, "epubdate": "", "pubtype": list(types)}
+
+
+class PubmedApi:
+    """Stand-in for requests.get that answers like PubMed's esearch and esummary.
+
+    `records` is {pmid: esummary record}; esearch returns the pmids in order (limited by retmax),
+    esummary returns the records asked for. Every call is recorded as (service, params, timeout).
+    """
+
+    def __init__(self, pubmed_clock):
+        self.clock = pubmed_clock
+        self.calls = []
+        self.times = []                      # fake-clock time of every call
+        self.records = {}
+        self.search_ids = None               # None: all records in insertion order
+        self.status = {"esearch": 200, "esummary": 200}
+        self.error = {"esearch": None, "esummary": None}
+        self.raw = {"esearch": None, "esummary": None}     # replace the whole reply body
+        self.queue = {"esearch": [], "esummary": []}       # one-shot (status, headers) answers, used first
+
+    def add(self, pmid, title, **kwargs):
+        self.records[str(pmid)] = pubmed_record(pmid, title, **kwargs)
+
+    def count(self, service):
+        return sum(1 for kind, _p, _t in self.calls if kind == service)
+
+    def __call__(self, url, params=None, timeout=None, **kwargs):
+        service = "esearch" if "esearch" in url else "esummary" if "esummary" in url else None
+        if service is None:                   # any other service (exchange rates, weather) stays offline
+            raise requests.ConnectionError("network disabled in tests")
+        params = dict(params or {})
+        self.calls.append((service, params, timeout))
+        self.times.append(self.clock.now)
+        if self.queue[service]:
+            status, headers = self.queue[service].pop(0)
+            return FakeResponse({}, status, headers)
+        if self.error[service]:
+            raise self.error[service]
+        if self.raw[service] is not None:
+            return FakeResponse(self.raw[service], self.status[service])
+        if service == "esearch":
+            ids = self.search_ids if self.search_ids is not None else list(self.records)
+            ids = ids[: int(params.get("retmax", 20))]
+            body = {"header": {"type": "esearch"}, "esearchresult": {"count": str(len(ids)), "idlist": ids}}
+            if not ids:
+                body["esearchresult"]["warninglist"] = {"outputmessages": ["No items found."]}
+        else:
+            ids = [i for i in params["id"].split(",") if i in self.records]
+            body = {"header": {"type": "esummary"}, "result": {"uids": ids, **{i: self.records[i] for i in ids}}}
+        return FakeResponse(body, self.status[service])
+
+
+@pytest.fixture
+def pubmed_api(monkeypatch, pubmed_clock):
+    api = PubmedApi(pubmed_clock)
+    monkeypatch.setattr("live.pubmed.requests.get", api)
+    return api

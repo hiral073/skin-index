@@ -1,13 +1,15 @@
+import json
 import math
 import re
 import time
 from collections import namedtuple
 from contextlib import closing
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from database.db import COMPARE_DROPDOWN_MAX, get_db, init_db
 from live.currency import CurrencyError, fetch_usd_inr
+from live.pubmed import PubmedError, search_pubmed
 from live.weather import WeatherError, fetch_air_quality, fetch_forecast, search_places
 
 # stale is True when the rate is older than today's and today's fetch failed
@@ -726,6 +728,108 @@ def get_today_conditions(city=None, latitude=None, longitude=None, label=None):
             guidance["check_advisories"] = value > config["advisory_above_aqi"]
         else:
             result["missing"].append("air_quality")
+    return result
+
+
+# ------------------------------------------------------------------ #
+# Research: published papers from PubMed                              #
+# ------------------------------------------------------------------ #
+
+RESEARCH_CONFIG = {
+    "cache_hours": 24,       # a saved search is reused this long, with no call to PubMed
+    "prune_days": 30,        # saved searches older than this are deleted
+    "max_rows": 1000,        # at most this many saved searches are kept (oldest go first)
+    "max_term_length": 60,
+}
+
+
+def clean_search_text(text):
+    """An ingredient search as lower-case plain text, or None if it is unusable.
+
+    The same rules as a city name (letters, digits, spaces, hyphens, apostrophes, commas and full
+    stops; links, brackets, quotes and colons are refused). Lower case also stops a typed AND or OR
+    from acting as a PubMed operator.
+    """
+    cleaned = clean_place_text(text, RESEARCH_CONFIG["max_term_length"])
+    return cleaned.casefold() if cleaned else None
+
+
+def _saved_search(conn, term, reviews_only):
+    """(fetched_at as an aware datetime, papers) for a saved search, or None if there is none or it is unreadable."""
+    row = conn.execute(
+        "SELECT fetched_at, papers_json FROM pubmed_searches WHERE term = ? AND reviews_only = ?",
+        (term, int(reviews_only)),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        fetched = datetime.fromisoformat(row["fetched_at"])
+        papers = json.loads(row["papers_json"])
+    except (ValueError, TypeError):
+        return None
+    if fetched.tzinfo is None or not isinstance(papers, list):
+        return None
+    return fetched, papers
+
+
+def _save_search(conn, term, reviews_only, papers, now):
+    with conn:
+        conn.execute(
+            "INSERT INTO pubmed_searches (term, reviews_only, fetched_at, papers_json) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT (term, reviews_only) DO UPDATE SET"
+            " fetched_at = excluded.fetched_at, papers_json = excluded.papers_json",
+            (term, int(reviews_only), now.isoformat(timespec="seconds"), json.dumps(papers)),
+        )
+        cutoff = (now - timedelta(days=RESEARCH_CONFIG["prune_days"])).isoformat(timespec="seconds")
+        conn.execute("DELETE FROM pubmed_searches WHERE fetched_at < ?", (cutoff,))
+        conn.execute(
+            "DELETE FROM pubmed_searches WHERE rowid IN (SELECT rowid FROM pubmed_searches"
+            " ORDER BY fetched_at DESC LIMIT -1 OFFSET ?)",
+            (RESEARCH_CONFIG["max_rows"],),
+        )
+
+
+def search_research(term, reviews_only=False, db_path=None, now=None):
+    """Published papers about an ingredient, from PubMed (or a saved copy); plain data only.
+
+    Lists papers and nothing else: no claim about what an ingredient does is made or implied.
+    The search is "<term> AND skin"; `reviews_only` keeps only review papers.
+
+    Returns {"status", "term", "query", "reviews_only", "papers", "source", "fetched_at"}:
+    - status: "ok" (papers found), "empty" (a search with no match), "invalid" (unusable text)
+      or "unavailable" (PubMed could not be reached and nothing is saved).
+    - papers: up to 10 of {"pmid", "title", "journal", "year", "types", "url"} in PubMed's
+      relevance order; journal and year may be None.
+    - source: "live" (fetched now), "cache" (saved less than 24 hours ago, no call made) or
+      "stale_cache" (older, shown only because PubMed could not be reached); fetched_at is the
+      UTC time (ISO text) the papers were fetched, or None.
+    """
+    reviews_only = bool(reviews_only)
+    cleaned = clean_search_text(term)
+    result = {"status": None, "term": cleaned, "query": f"{cleaned} AND skin" if cleaned else None,
+              "reviews_only": reviews_only, "papers": [], "source": None, "fetched_at": None}
+    if cleaned is None:
+        result["status"] = "invalid"
+        return result
+
+    init_db(db_path)
+    now = now or datetime.now(timezone.utc)
+    with closing(get_db(db_path)) as conn:
+        saved = _saved_search(conn, cleaned, reviews_only)
+        if saved and now - saved[0] < timedelta(hours=RESEARCH_CONFIG["cache_hours"]):
+            result.update(papers=saved[1], source="cache", fetched_at=saved[0].isoformat(timespec="seconds"))
+        else:
+            try:
+                papers = search_pubmed(cleaned, reviews_only)
+            except PubmedError:
+                if saved is None:
+                    result["status"] = "unavailable"
+                    return result
+                result.update(papers=saved[1], source="stale_cache", fetched_at=saved[0].isoformat(timespec="seconds"))
+            else:
+                _save_search(conn, cleaned, reviews_only, papers, now)
+                result.update(papers=papers, source="live", fetched_at=now.isoformat(timespec="seconds"))
+    result["status"] = "ok" if result["papers"] else "empty"
     return result
 
 

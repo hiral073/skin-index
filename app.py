@@ -1,14 +1,16 @@
 import math
 from contextlib import closing
+from datetime import datetime
 
 from flask import Flask, abort, render_template, request, url_for
 
+from content import research as research_content
 from content import today_tips as today_content
 from database.db import DB_PATH, get_db
 from database.services import (
     TODAY_CONFIG, compare_products, escape_like, get_insights, get_product_detail,
     get_today_conditions, get_usd_inr_rate, inr_per_ml, inr_price, list_brands_in_group,
-    list_groups, list_products_in_group,
+    list_groups, list_products_in_group, search_research,
 )
 
 PAGE_SIZE = 24
@@ -364,6 +366,23 @@ def tip_cards(data):
         cards.append({"title": today_content.HEADLINES[tips["headline"]],
                       "tips": today_content.TIP_GROUPS[group], "links": links})
     return cards
+
+
+@app.route("/research")
+def research():
+    term = request.args.get("q")
+    reviews_only = request.args.get("reviews") == "1"
+    searched = term is not None and term.strip() != ""
+    result = search_research(term, reviews_only, app.config["DATABASE"]) if searched else None
+    saved_on = None
+    if result and result["source"] == "stale_cache":
+        saved_on = datetime.fromisoformat(result["fetched_at"]).strftime("%d %b %Y").lstrip("0")
+    return render_template(
+        "research.html", result=result, content=research_content, reviews_only=reviews_only,
+        term_text=" ".join((term or "").split())[:60], saved_on=saved_on,
+        quick_links=[{"name": name, "url": url_for("research", q=name, **({"reviews": "1"} if reviews_only else {}))}
+                     for name in research_content.QUICK_LINKS],
+    )
 
 
 @app.route("/today")

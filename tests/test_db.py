@@ -106,6 +106,23 @@ def test_popularity_values_round_trip_and_may_be_empty(db_path):
     assert [tuple(r) for r in rows] == [(763168, 4.3815, 1376), (None, None, None)]
 
 
+def test_init_db_creates_the_pubmed_searches_table_idempotently(db_path):
+    init_db(db_path)
+    init_db(db_path)
+    columns = [r["name"] for r in query(db_path, "PRAGMA table_info(pubmed_searches)")]
+    assert columns == ["term", "reviews_only", "fetched_at", "papers_json"]
+
+
+def test_a_saved_search_is_unique_per_term_and_reviews_only(db_path):
+    init_db(db_path)
+    insert = "INSERT INTO pubmed_searches VALUES ('retinol', 0, '2026-11-12T10:00:00+00:00', '[]')"
+    with closing(get_db(db_path)) as conn:
+        conn.execute(insert)
+        conn.execute("INSERT INTO pubmed_searches VALUES ('retinol', 1, '2026-11-12T10:00:00+00:00', '[]')")   # reviews only: allowed
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(insert)
+
+
 def test_seed_db_gives_each_product_a_compare_group(db_path):
     init_db(db_path)
     seed_db(db_path)

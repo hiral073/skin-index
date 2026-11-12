@@ -2,7 +2,7 @@
 
 A Flask app for understanding skincare products: ingredients, price per ml, product comparison and shopper-engagement insights, plus live pages for today's sun and air conditions and for research, and later ingredient tools.
 
-**Status:** in progress. Steps 1-7 and 9 are done (database, dataset loader, product search, INR prices, product page, compare, insights, today page). The rest is built step by step.
+**Status:** in progress. Steps 1-7, 9 and 10 are done (database, dataset loader, product search, INR prices, product page, compare, insights, today page). The rest is built step by step.
 
 ## Features and roadmap
 1. Database setup (SQLite) — done
@@ -15,7 +15,7 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
 7. Insights page: most liked brands and products, well-reviewed products with a lower price per ml, price vs rating, most common ingredients — done
 8. Dropped (no step 8)
 9. Today page: live UV, humidity and US AQI from Open-Meteo, shown as information, plus general sun-protection guidance based on public UV index categories, and a link to the sunscreen list. No product recommendations. — done
-10. Research page: PubMed titles, journals, years and links
+10. Research page: PubMed titles, journals, years, publication types and links — done
 11. MCP server (read-only access to the product data): search, compare, insights, weather and an avoid-list check
 12. Ingredient Intelligence
     - 12a. Ingredient-name normalizer: names mapped to canonical names (exact, alias and fuzzy matching), with a reported match rate
@@ -28,6 +28,8 @@ Not planned: login, an in-app AI assistant, Indian product data, product recomme
 **Data:** the product data is a March 2023 Sephora US snapshot. Prices, likes, ratings and reviews are as of then, not live.
 
 The Insights page shows what shoppers like and review on one retailer's site (likes, ratings and reviews from the dataset, not sales): the most liked brands and products, and the most common ingredients. Choose one product type in the dropdown to also see well-reviewed products (at least 50 reviews and a rating of at least 4.0) sorted by price per ml, and how the average rating differs across three price-per-ml bands. Ratings are averaged using each product's number of reviews as the weight, ratings with few reviews are ignored, and older products have had more time to collect likes and reviews. The bands show a pattern, not a cause. Prices are US prices, converted to rupees at the shown rate, and are approximate.
+
+The Research page lists published papers about a skincare ingredient from PubMed (the US National Library of Medicine): title, journal, year, publication type and a link to the paper, the 10 most relevant, with a "Reviews only" filter and quick links for common ingredients. It only lists papers: a study existing does not mean a product works. Searches are saved for 24 hours, so repeat searches do not call PubMed again, and if PubMed is down an older saved copy is shown with its date. To give NCBI a contact address (they ask for one), set the `NCBI_EMAIL` environment variable; with none set, no email is sent.
 
 The Today page shows live conditions for a city: UV index now and today's maximum, humidity, temperature and US air quality (AQI), each UV and AQI value with its standard category, as information only. When the weather is cool or dry, or hot and humid, a "Skin-care tips for today's weather" card shows tips quoted from named sources (American Academy of Dermatology, Johns Hopkins Medicine), each with its source. Below it, a "Sun protection today" card depends on today's peak UV: at 3 or higher it gives an hour-by-hour UV timeline with the peak hour, general sunscreen guidance from the American Academy of Dermatology, extra steps from the World Health Organization, a few reminders and a link to the sunscreen list; at 1 to 2 it is a single short line; below 1 it only says UV is very low. It is general information, not medical or dermatological advice, and it recommends no product. Weather data comes from [Open-Meteo.com](https://open-meteo.com/) (free for non-commercial use, no key), with air quality from CAMS and places from GeoNames. Results are cached for 15 minutes, and if the service is down or slow the page says so and never shows made-up numbers. The default city is Pune.
 
