@@ -1,6 +1,7 @@
 import re
 from contextlib import closing
 from datetime import date
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -72,6 +73,38 @@ def test_each_product_links_to_its_detail_page(catalog, client):
         ids = [r["id"] for r in conn.execute("SELECT id FROM products")]
     for pid in ids:
         assert f'href="/products/{pid}"' in html
+
+
+def test_detail_links_carry_the_current_list_state(catalog, client):
+    html = client.get(
+        "/products", query_string={"q": "glow", "category": "Serums", "sort": "price"}
+    ).get_data(as_text=True)
+    hrefs = re.findall(r'class="product-link" href="([^"]+)"', html)
+    assert len(hrefs) == 1
+    path, _, query = hrefs[0].replace("&amp;", "&").partition("?")
+    assert re.fullmatch(r"/products/\d+", path)
+    assert parse_qs(query) == {"q": ["glow"], "category": ["Serums"], "sort": ["price"]}
+
+
+def test_detail_links_carry_the_page_number(many, client):
+    html = client.get("/products", query_string={"page": 2}).get_data(as_text=True)
+    hrefs = re.findall(r'class="product-link" href="([^"]+)"', html)
+    assert len(hrefs) == 6
+    assert all(parse_qs(h.partition("?")[2]) == {"page": ["2"]} for h in hrefs)
+
+
+def test_detail_links_are_plain_for_the_default_list(catalog, client):
+    html = client.get("/products").get_data(as_text=True)
+    hrefs = re.findall(r'class="product-link" href="([^"]+)"', html)
+    assert len(hrefs) == 4 and all(re.fullmatch(r"/products/\d+", h) for h in hrefs)
+
+
+def test_list_link_leads_to_a_working_detail_page(catalog, client):
+    html = client.get("/products", query_string={"q": "alpha"}).get_data(as_text=True)
+    href = re.search(r'class="product-link" href="([^"]+)"', html).group(1).replace("&amp;", "&")
+    response = client.get(href)
+    assert response.status_code == 200
+    assert "Alpha Serum" in response.get_data(as_text=True)
 
 
 @pytest.mark.parametrize("query, expected", [

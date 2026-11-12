@@ -1,10 +1,10 @@
 import math
 from contextlib import closing
 
-from flask import Flask, render_template, request, url_for
+from flask import Flask, abort, render_template, request, url_for
 
 from database.db import DB_PATH, get_db
-from database.services import get_usd_inr_rate, inr_price
+from database.services import get_product_detail, get_usd_inr_rate, inr_per_ml, inr_price
 
 PAGE_SIZE = 24
 SORT_OPTIONS = {
@@ -55,6 +55,19 @@ def escape_like(text):
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def list_args(q, category, sort, page):
+    """Search, filter, sort and page of the product list, for links that return to it.
+
+    Defaults and unknown or invalid values become None, which url_for leaves out.
+    """
+    return {
+        "q": q or None,
+        "category": category or None,
+        "sort": sort if sort in SORT_OPTIONS and sort != "name" else None,
+        "page": page if page and page > 1 else None,
+    }
+
+
 @app.route("/products")
 def products():
     q = request.args.get("q", "").strip()
@@ -87,6 +100,7 @@ def products():
     return render_template(
         "products.html",
         products=rows,
+        detail_args=list_args(q, category, sort, page),
         total=total,
         q=q,
         category=category,
@@ -101,23 +115,50 @@ def products():
     )
 
 
+@app.route("/products/<int:id>")
+def product_detail(id):
+    product = get_product_detail(id, app.config["DATABASE"])
+    if product is None:
+        abort(404)
+
+    rate = get_usd_inr_rate(app.config["DATABASE"])  # None: no INR anywhere on the page
+    rate_value = rate and rate.rate
+    back_url = url_for(
+        "products",
+        **list_args(
+            request.args.get("q", "").strip(),
+            request.args.get("category", "").strip(),
+            request.args.get("sort"),
+            request.args.get("page", type=int),
+        ),
+    )
+    return render_template(
+        "product_detail.html",
+        product=product,
+        rate=rate,
+        price_inr=inr_price(product["price"], rate_value),
+        per_ml_inr=inr_per_ml(product["price_per_ml"], rate_value),
+        back_url=back_url,
+    )
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return render_template("404.html"), 404
+
+
 # ------------------------------------------------------------------ #
 # Placeholder routes — to be implemented step by step                 #
 # ------------------------------------------------------------------ #
 
-@app.route("/products/<int:id>")
-def product_detail(id):
-    return "Product page — coming in Step 4"
-
-
 @app.route("/compare")
 def compare():
-    return "Compare products — coming in Step 5"
+    return "Compare products — coming in Step 6"
 
 
 @app.route("/insights")
 def insights():
-    return "Market insights — coming in Step 6"
+    return "Market insights — coming in Step 7"
 
 
 if __name__ == "__main__":

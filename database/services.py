@@ -66,6 +66,29 @@ def get_usd_inr_rate(db_path=None, today=None):
         return None
 
 
+def get_product_detail(product_id, db_path=None):
+    """One product as a dict with its ingredient names in label order, or None if unknown.
+
+    Fields that are missing in the database come back as None; `ingredients` is
+    an empty list when the product has none.
+    """
+    with closing(get_db(db_path)) as conn:
+        product = conn.execute(
+            "SELECT id, name, brand, category, size_text, price, price_per_ml"
+            " FROM products WHERE id = ?",
+            (product_id,),
+        ).fetchone()
+        if product is None:
+            return None
+        ingredients = conn.execute(
+            "SELECT i.name FROM product_ingredients pi"
+            " JOIN ingredients i ON i.id = pi.ingredient_id"
+            " WHERE pi.product_id = ? ORDER BY pi.position",
+            (product_id,),
+        ).fetchall()
+    return {**product, "ingredients": [row["name"] for row in ingredients]}
+
+
 def inr_price(price_usd, rate):
     """USD price to whole rupees, halves rounded up; None if either input is missing."""
     if price_usd is None or rate is None:

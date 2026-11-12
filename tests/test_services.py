@@ -6,7 +6,8 @@ import requests
 
 from database.db import get_db, init_db
 from database.services import (
-    RateInfo, get_usd_inr_rate, inr_per_ml, inr_price, reset_rate_cooldown,
+    RateInfo, get_product_detail, get_usd_inr_rate, inr_per_ml, inr_price,
+    reset_rate_cooldown,
 )
 
 TODAY = "2026-11-11"
@@ -120,6 +121,59 @@ def test_database_without_exchange_rates_table_gets_it(tmp_path, rate_api):
     with closing(sqlite3.connect(path)) as conn:
         conn.execute("CREATE TABLE products (id INTEGER PRIMARY KEY)")  # pre-Step-4 database
     assert get_usd_inr_rate(path, today=TODAY).rate == 93.69
+
+
+def add_product_with_ingredients(db_path, ingredients, **fields):
+    with closing(get_db(db_path)) as conn, conn:
+        pid = conn.execute(
+            "INSERT INTO products (name, brand, category, price, size_text, price_per_ml)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (fields.get("name", "Bravo Cream"), "Dew Labs", fields.get("category", "Moisturizers"),
+             fields.get("price", 20.0), fields.get("size_text", "100 mL"),
+             fields.get("price_per_ml", 0.2)),
+        ).lastrowid
+        for position, name in ingredients:
+            conn.execute("INSERT OR IGNORE INTO ingredients (name) VALUES (?)", (name,))
+            iid = conn.execute("SELECT id FROM ingredients WHERE name = ?", (name,)).fetchone()[0]
+            conn.execute(
+                "INSERT INTO product_ingredients (product_id, ingredient_id, position)"
+                " VALUES (?, ?, ?)", (pid, iid, position),
+            )
+    return pid
+
+
+def test_get_product_detail_returns_fields_and_ingredients_in_label_order(db_path):
+    pid = add_product_with_ingredients(
+        db_path, [(2, "Glycerin"), (1, "Water"), (3, "Squalane")]
+    )
+    assert get_product_detail(pid, db_path) == {
+        "id": pid, "name": "Bravo Cream", "brand": "Dew Labs", "category": "Moisturizers",
+        "size_text": "100 mL", "price": 20.0, "price_per_ml": 0.2,
+        "ingredients": ["Water", "Glycerin", "Squalane"],
+    }
+
+
+def test_get_product_detail_only_returns_that_products_ingredients(db_path):
+    first = add_product_with_ingredients(db_path, [(1, "Water"), (2, "Glycerin")])
+    second = add_product_with_ingredients(db_path, [(1, "Water")], name="Other")
+    assert get_product_detail(first, db_path)["ingredients"] == ["Water", "Glycerin"]
+    assert get_product_detail(second, db_path)["ingredients"] == ["Water"]
+
+
+def test_get_product_detail_keeps_missing_fields_as_none(db_path):
+    pid = add_product_with_ingredients(
+        db_path, [], category=None, price=None, size_text=None, price_per_ml=None
+    )
+    product = get_product_detail(pid, db_path)
+    assert product["ingredients"] == []
+    assert [product[k] for k in ("category", "price", "size_text", "price_per_ml")] == [None] * 4
+
+
+@pytest.mark.parametrize("bad_id", [999, 0, -1, "1 OR 1=1", "1; DROP TABLE products"])
+def test_get_product_detail_unknown_id_is_none(db_path, bad_id):
+    add_product_with_ingredients(db_path, [(1, "Water")])
+    assert get_product_detail(bad_id, db_path) is None
+    assert get_product_detail(1, db_path) is not None   # table still there
 
 
 @pytest.mark.parametrize("price, rate, expected", [

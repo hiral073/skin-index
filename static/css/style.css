@@ -554,6 +554,88 @@ a { color: inherit; text-decoration: none; }
     color: var(--ink-muted);
 }
 
+/* Product detail */
+
+.detail-page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 3rem 2rem 4rem;
+}
+
+.back-link {
+    display: inline-block;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+}
+
+.back-link:hover { color: var(--accent); }
+
+.detail-header { margin-bottom: 1.5rem; }
+.detail-header .page-title { margin-bottom: 0.25rem; }
+.detail-sub { color: var(--ink-muted); }
+
+.fact-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+}
+
+.fact {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+}
+
+.fact dt {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: 0.25rem;
+}
+
+.fact dd {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    color: var(--ink);
+}
+
+.not-available {
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-style: italic;
+    color: var(--ink-faint);
+}
+
+.section-title {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    margin: 2.5rem 0 0.5rem;
+}
+
+.ingredients-note {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    margin-bottom: 0.75rem;
+}
+
+.ingredient-list {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem 1rem 3rem;
+    columns: 2 220px;
+    column-gap: 2rem;
+}
+
+.ingredient-list li { padding: 0.15rem 0; break-inside: avoid; }
+
+.not-found-action { margin-top: 1.5rem; }
+
 .pagination {
     display: flex;
     justify-content: center;

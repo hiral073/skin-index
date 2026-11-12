@@ -44,7 +44,7 @@
             <tbody>
                 {% for p in products %}
                 <tr>
-                    <td><a class="product-link" href="{{ url_for('product_detail', id=p['id']) }}">{{ p['name'] }}</a></td>
+                    <td><a class="product-link" href="{{ url_for('product_detail', id=p['id'], **detail_args) }}">{{ p['name'] }}</a></td>
                     <td>{{ p['brand'] }}</td>
                     <td>{{ p['category'] or '—' }}</td>
                     <td>{{ p['size_text'] }}</td>

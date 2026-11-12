@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} · Skin Index{% endblock %}
+
+{% macro na() %}<span class="not-available">Not available</span>{% endmacro %}
+
+{% block content %}
+<section class="detail-page">
+    <a class="back-link" href="{{ back_url }}">&larr; Back to results</a>
+
+    <header class="detail-header">
+        <h1 class="page-title">{{ product.name }}</h1>
+        <p class="detail-sub">{{ product.brand }} · {{ product.category or na() }}</p>
+    </header>
+
+    <dl class="fact-grid">
+        <div class="fact">
+            <dt>Size</dt>
+            <dd>{{ product.size_text or na() }}</dd>
+        </div>
+        <div class="fact">
+            <dt>Price (USD)</dt>
+            <dd>{% if product.price is not none %}${{ '%.2f' | format(product.price) }}{% else %}{{ na() }}{% endif %}</dd>
+        </div>
+        {% if rate %}
+        <div class="fact">
+            <dt>≈ Price (₹)</dt>
+            <dd>{% if price_inr is not none %}₹{{ '{:,}'.format(price_inr) }}{% else %}{{ na() }}{% endif %}</dd>
+        </div>
+        {% endif %}
+        <div class="fact">
+            <dt>Price per ml (USD)</dt>
+            <dd>{% if product.price_per_ml is not none %}${{ '%.3f' | format(product.price_per_ml) }}{% else %}{{ na() }}{% endif %}</dd>
+        </div>
+        {% if rate %}
+        <div class="fact">
+            <dt>≈ Price per ml (₹)</dt>
+            <dd>{% if per_ml_inr is not none %}₹{{ '%.2f' | format(per_ml_inr) }}{% else %}{{ na() }}{% endif %}</dd>
+        </div>
+        {% endif %}
+    </dl>
+
+    {% if rate %}
+    <p class="rate-note">Converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}). Approximate, not Indian retail prices.{% if rate.stale %} (older rate){% endif %}</p>
+    {% endif %}
+
+    <h2 class="section-title">Ingredients</h2>
+    {% if product.ingredients %}
+    <p class="ingredients-note">Ingredients are listed roughly from highest to lowest concentration.</p>
+    <ol class="ingredient-list">
+        {% for name in product.ingredients %}
+        <li>{{ name }}</li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <p>{{ na() }}</p>
+    {% endif %}
+</section>
+{% endblock %}

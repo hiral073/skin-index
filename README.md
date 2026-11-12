@@ -2,14 +2,14 @@
 
 A Flask app for understanding skincare products: ingredients, price per ml, product comparison, brand-level price insights and skin-type tags, plus live pages for daily conditions and research.
 
-**Status:** in progress. Steps 1-4 are done (database, dataset loader, product search, INR prices). The rest is built step by step.
+**Status:** in progress. Steps 1-5 are done (database, dataset loader, product search, INR prices, product page). The rest is built step by step.
 
 ## Features and roadmap
 1. Database setup (SQLite) — done
 2. Load and clean a product dataset (pandas) — done
 3. Product search — done
 4. Currency: show prices in INR (approximate, from a daily exchange rate) — done
-5. Product page: ingredients, price, price per ml
+5. Product page: ingredients, price, price per ml — done
 6. Compare two products: price per ml and ingredient overlap
 7. Insights page: price per ml by brand, most common ingredients
 8. Skin-type tags and filter (ingredient-based, with reasons)
