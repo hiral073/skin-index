@@ -2,15 +2,19 @@ import math
 from contextlib import closing
 from datetime import datetime
 
-from flask import Flask, abort, render_template, request, url_for
+from flask import Flask, abort, redirect, render_template, request, url_for
 
-from content import research as research_content
+from content import ingredient_cards as cards_content
+from content import main_ingredients as main_ingredients_content
+from content import science as science_content
 from content import today_tips as today_content
+from content.compare_groups import GROUP_SEPARATOR, split_group
 from database.db import DB_PATH, get_db
 from database.services import (
-    TODAY_CONFIG, compare_products, escape_like, get_insights, get_product_detail,
-    get_today_conditions, get_usd_inr_rate, inr_per_ml, inr_price, list_brands_in_group,
-    list_groups, list_products_in_group, search_research,
+    MAIN_INGREDIENT_LABELS, TODAY_CONFIG, compare_products, escape_like, get_insights,
+    get_ingredient_card, get_ingredient_glance, get_product_detail, get_today_conditions, get_usd_inr_rate, group_papers, inr_per_ml,
+    inr_price, list_group_ingredients, list_groups, list_products_in_group,
+    main_ingredients_of, search_research,
 )
 
 PAGE_SIZE = 24
@@ -22,14 +26,17 @@ SORT_OPTIONS = {
 
 # All user input reaches SQLite as bound parameters. The sort key is bound too
 # (CASE picks the column), so no SQL text is ever built from the request.
+# The "category" filter and column are the cleaned compare group (content/compare_groups.py),
+# not the original `category` column, which only the detail page shows. A parent ("Sunscreen")
+# also matches its subcategories ("Sunscreen › Face"); a subcategory matches only itself.
 FILTER_SQL = """
     FROM products
     WHERE (:q = '' OR name LIKE :like ESCAPE '\\' OR brand LIKE :like ESCAPE '\\')
-      AND (:category = '' OR category = :category)
+      AND (:category = '' OR compare_group = :category OR compare_group LIKE :sub_prefix ESCAPE '\\')
 """
 COUNT_SQL = "SELECT COUNT(*) " + FILTER_SQL
 PRODUCTS_SQL = (
-    "SELECT id, name, brand, category, price, size_text "
+    "SELECT id, name, brand, compare_group, price, size_text "
     + FILTER_SQL
     + """
     ORDER BY
@@ -41,7 +48,7 @@ PRODUCTS_SQL = (
 """
 )
 CATEGORIES_SQL = (
-    "SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category"
+    "SELECT DISTINCT compare_group FROM products WHERE compare_group IS NOT NULL ORDER BY compare_group"
 )
 
 app = Flask(__name__)
@@ -51,6 +58,34 @@ app.config["DATABASE"] = DB_PATH  # tests point this at a temporary database
 # ------------------------------------------------------------------ #
 # Routes                                                              #
 # ------------------------------------------------------------------ #
+
+def group_sections(entries, all_option=False):
+    """Dropdown sections for compare groups: [{"label", "options": [{"value", "label"}]}].
+
+    `entries` are (group name, text to add after the label, such as " (95)"). A parent with
+    subcategories becomes one section named after it (an <optgroup>), listing only the
+    subcategory names; with `all_option` it starts with "All <parent>" (the parent's own value).
+    Any other group is a plain option (section label None).
+    """
+    by_parent = {}
+    for name, suffix in entries:
+        by_parent.setdefault(split_group(name)[0], []).append((name, suffix))
+    sections = []
+    for parent in sorted(by_parent, key=str.casefold):
+        items = sorted(by_parent[parent])
+        if not any(split_group(name)[1] for name, _ in items):
+            sections += [{"label": None, "options": [{"value": n, "label": n + s}]} for n, s in items]
+            continue
+        options = [{"value": parent, "label": f"All {parent}"}] if all_option else []
+        for name, suffix in items:
+            sub_name = split_group(name)[1]
+            if sub_name:
+                options.append({"value": name, "label": sub_name + suffix})
+            elif not all_option:
+                options.append({"value": name, "label": "No subcategory" + suffix})
+        sections.append({"label": parent, "options": options})
+    return sections
+
 
 @app.route("/")
 def landing():
@@ -79,7 +114,8 @@ def products():
         sort = "name"
     page = request.args.get("page", 1, type=int)
 
-    params = {"q": q, "like": f"%{escape_like(q)}%", "category": category}
+    params = {"q": q, "like": f"%{escape_like(q)}%", "category": category,
+              "sub_prefix": escape_like(category + GROUP_SEPARATOR) + "%"}
     with closing(get_db(app.config["DATABASE"])) as conn:
         total = conn.execute(COUNT_SQL, params).fetchone()[0]
         pages = max(1, math.ceil(total / PAGE_SIZE))
@@ -88,7 +124,7 @@ def products():
             PRODUCTS_SQL,
             {**params, "sort": sort, "limit": PAGE_SIZE, "offset": (page - 1) * PAGE_SIZE},
         ).fetchall()
-        categories = [r["category"] for r in conn.execute(CATEGORIES_SQL)]
+        groups = [r["compare_group"] for r in conn.execute(CATEGORIES_SQL)]
 
     rate = get_usd_inr_rate(app.config["DATABASE"])  # None: no INR column at all
     rows = [
@@ -108,7 +144,7 @@ def products():
         category=category,
         sort=sort,
         sort_options=SORT_OPTIONS,
-        categories=categories,
+        category_sections=group_sections([(g, "") for g in groups], all_option=True),
         rate=rate,
         page=page,
         pages=pages,
@@ -134,9 +170,15 @@ def product_detail(id):
             request.args.get("page", type=int),
         ),
     )
+    science_links = [
+        {"label": f"Studies on {entry['label']}", "url": url_for("science", q=entry["science_term"])}
+        for entry in main_ingredients_content.MAIN_INGREDIENTS
+        if entry["key"] in main_ingredients_of(product["name"], [i["name"] for i in product["ingredients"]])
+    ]
     return render_template(
         "product_detail.html",
         product=product,
+        science_links=science_links,
         rate=rate,
         price_inr=inr_price(product["price"], rate_value),
         per_ml_inr=inr_per_ml(product["price_per_ml"], rate_value),
@@ -148,6 +190,24 @@ def product_detail(id):
 def percent_filter(value):
     """12.025 -> '12.025', 2.0 -> '2', 0.0408 -> '0.0408' (no exponent, no trailing zeros)."""
     return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+@app.template_filter("shorten")
+def shorten_filter(text, length=science_content.TITLE_MAX_LENGTH):
+    """A long text cut at a word boundary to about `length` characters, with an ellipsis."""
+    if len(text) <= length:
+        return text
+    cut = text[:length]
+    if text[length] != " " and " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,;:-\u2013") + "\u2026"
+
+
+@app.template_filter("and_list")
+def and_list_filter(items):
+    """['a'] -> 'a', ['a', 'b', 'c'] -> 'a, b and c'."""
+    items = list(items)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1] if items else ""
 
 
 @app.errorhandler(404)
@@ -170,63 +230,57 @@ def product_label(p):
     return f"{p['brand']} - {p['name']} ({size}, {price})"
 
 
-def build_picker(side, args, other, db_path):
-    """What the page needs to let the user choose the product for `side` ('a' or 'b').
-
-    `other` is the product already chosen on the other side (or None). The picker then
-    lists only that product's comparison group, without that product itself.
-    """
-    constrained = other["compare_group"] if other else None
-    picker = {
-        "side": side, "label": f"Product {side.upper()}", "group": constrained,
-        "constrained": other is not None, "groups": None, "brands": [], "brand": "",
-        "q": args.get(f"{side}_q", "").strip(), "options": [], "needs_brand": False,
-        "total": 0, "capped": False, "other_id": other["id"] if other else None,
-    }
-    if other is None:
-        picker["groups"] = list_groups(db_path)
-        wanted = args.get(f"{side}_group", "")
-        picker["group"] = wanted if wanted in {g["name"] for g in picker["groups"]} else None
-    if not picker["group"]:
-        return picker
-    picker["brands"] = list_brands_in_group(picker["group"], db_path)
-    wanted = args.get(f"{side}_brand", "")
-    picker["brand"] = wanted if wanted in {b["brand"] for b in picker["brands"]} else ""
-    listing = list_products_in_group(
-        picker["group"], picker["brand"] or None, picker["q"],
-        exclude_id=picker["other_id"], db_path=db_path,
-    )
-    picker.update(
-        options=[{"id": p["id"], "label": product_label(p)} for p in listing["products"]],
-        needs_brand=listing["needs_brand"], total=listing["total"], capped=listing["capped"],
-    )
-    return picker
+def join_labels(keys):
+    """'niacinamide', 'niacinamide and vitamin C', 'a, b and c' for main ingredient keys."""
+    labels = [MAIN_INGREDIENT_LABELS[key] for key in keys]
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
 
 
 @app.route("/compare")
 def compare():
     db_path = app.config["DATABASE"]
     args = request.args
+    raw_group = args.get("group", "")
+    raw_ingredient = args.get("ingredient", "")
     ids = {"a": parse_product_id(args.get("a")), "b": parse_product_id(args.get("b"))}
     result = compare_products(ids["a"], ids["b"], db_path)
 
-    # A product left over from an earlier choice of category or brand (a form sent
-    # without JavaScript) is not a choice: show the picker again instead.
-    stale = {
-        side: result[side] is not None and (
-            (args.get(f"{side}_group") and result[side]["compare_group"] != args.get(f"{side}_group"))
-            or (args.get(f"{side}_brand") and result[side]["brand"] != args.get(f"{side}_brand"))
+    # A product left over from an earlier choice of category or main ingredient (a form sent
+    # without JavaScript) is not a choice: show the pickers again instead.
+    def stale(side):
+        product = result[side]
+        return product is not None and (
+            (raw_group and product["compare_group"] != raw_group)
+            or (raw_ingredient and raw_ingredient not in result[f"{side}_main"])
         )
-        for side in ("a", "b")
-    }
-    if stale["a"] or stale["b"]:
-        ids = {side: None if stale[side] else ids[side] for side in ids}
+
+    if stale("a") or stale("b"):
+        ids = {side: None if stale(side) else ids[side] for side in ids}
         result = compare_products(ids["a"], ids["b"], db_path)
 
     # With the same product on both sides, B is still to be chosen
     shown = {side: result[side] for side in ("a", "b")}
     if result["status"] == "same_product":
         shown["b"] = None
+    anchor_side = "a" if shown["a"] else "b" if shown["b"] else None
+    anchor = shown[anchor_side] if anchor_side else None
+    anchor_main = result[f"{anchor_side}_main"] if anchor_side else []
+
+    groups = list_groups(db_path)
+    group_sizes = {g["name"]: g["products"] for g in groups}
+    group = anchor["compare_group"] if anchor else (raw_group if raw_group in group_sizes else None)
+    group = group or None
+
+    ingredients = []
+    if group:
+        ingredients = [i for i in list_group_ingredients(group, db_path) if not anchor or i["key"] in anchor_main]
+    keys = {i["key"] for i in ingredients}
+    ingredient = raw_ingredient if raw_ingredient in keys else ""
+    if not ingredient and result["status"] == "ok" and result["shared_main"]:
+        ingredient = result["shared_main"][0]
+    if not ingredient and anchor and len(ingredients) == 1:
+        ingredient = ingredients[0]["key"]
+    ingredient_products = {i["key"]: i["products"] for i in ingredients}
 
     messages = []
     for side in ("a", "b"):
@@ -234,50 +288,81 @@ def compare():
             messages.append(f"We couldn't find product {side.upper()} (id {ids[side]}). Please choose one below.")
     if result["status"] == "same_product":
         messages.append("Product A and product B are the same product. Please choose a different product for B.")
-    elif result["status"] == "different_groups":
+    for side in ("a", "b"):
+        product = shown[side]
+        if product is None:
+            continue
+        if product["compare_group"] is None:
+            category = product["category"] or "its category"
+            messages.append(
+                f"Product {side.upper()} ({category}) has no comparison group, "
+                "so it can't be compared fairly with other products."
+            )
+        elif not result[f"{side}_main"]:
+            messages.append(
+                f"Product {side.upper()} doesn't name any of the main ingredients we group by or list one "
+                f"among its first {main_ingredients_content.TOP_N} ingredients, so it can't be compared here."
+            )
+    if result["status"] == "different_groups":
         messages.append(
             f"Product A is in {result['a_group']} and product B is in {result['b_group']}, "
             "so they can't be compared fairly."
         )
-    elif result["status"] == "no_group":
-        for side in ("a", "b"):
-            if shown[side] and shown[side]["compare_group"] is None:
-                category = shown[side]["category"] or "its category"
-                messages.append(
-                    f"Product {side.upper()} ({category}) has no comparison group, "
-                    "so it can't be compared fairly with other products."
-                )
+    elif result["status"] == "different_ingredients":
+        messages.append(
+            f"Product A is grouped under {join_labels(result['a_main'])} and product B under "
+            f"{join_labels(result['b_main'])}, so they can't be compared here: "
+            "they share no main ingredient group."
+        )
+    if group and group not in group_sizes:
+        messages.append(f"There is only 1 product in {group}, so there is nothing to compare.")
+    elif ingredient and ingredient_products.get(ingredient, 0) < 2:
+        messages.append(
+            f"Only 1 product in {group} is in the {MAIN_INGREDIENT_LABELS[ingredient]} group, "
+            "so there is nothing to compare."
+        )
+    elif group and ingredients and not any(i["products"] >= 2 for i in ingredients):
+        messages.append(
+            f"In {group}, no main ingredient group has 2 or more products, so there is nothing to compare."
+        )
+    elif group and not ingredients and not anchor:
+        messages.append(f"No product in {group} is in a main ingredient group, so there is nothing to compare.")
 
-    rate = get_usd_inr_rate(db_path) if any(shown.values()) else None
-    rate_value = rate and rate.rate
-    sides = []
-    for side, other_side in (("a", "b"), ("b", "a")):
-        product, other = shown[side], shown[other_side]
-        picker = None
-        blocked = other is not None and other["compare_group"] is None
-        if product is None and not blocked and (side == "a" or other is not None):
-            picker = build_picker(side, args, other, db_path)
-        if product is None and blocked:
-            messages.append(
-                f"Product {other_side.upper()} ({other['category'] or 'its category'}) has no "
-                "comparison group, so it can't be compared fairly with other products."
-            )
-        sides.append({
-            "side": side, "label": f"Product {side.upper()}", "product": product,
-            "price_inr": product and inr_price(product["price"], rate_value),
-            "per_ml_inr": product and inr_per_ml(product["price_per_ml"], rate_value),
-            "change_url": url_for("compare", **{other_side: other["id"]}) if other else url_for("compare"),
-            "picker": picker, "blocked": blocked and product is None,
-        })
+    options = {"a": [], "b": []}
+    if group and ingredient and ingredient_products.get(ingredient, 0) >= 2:
+        for side, other_side in (("a", "b"), ("b", "a")):
+            exclude = shown[other_side]["id"] if shown[other_side] else None
+            options[side] = [
+                {"id": p["id"], "label": product_label(p)}
+                for p in list_products_in_group(group, ingredient, exclude, db_path)
+            ]
 
     both_shown = shown["a"] is not None and shown["b"] is not None
+    rate = get_usd_inr_rate(db_path) if both_shown else None
+    rate_value = rate and rate.rate
+    facts = {
+        side: {
+            "price_inr": shown[side] and inr_price(shown[side]["price"], rate_value),
+            "per_ml_inr": shown[side] and inr_per_ml(shown[side]["price_per_ml"], rate_value),
+        }
+        for side in ("a", "b")
+    }
     if both_shown and result["status"] == "different_groups":
-        retry_url = url_for("compare", a=shown["a"]["id"])
+        retry_url, retry_label = url_for("compare", a=shown["a"]["id"]), f"Choose a product from {result['a_group']}"
+    elif both_shown and result["status"] == "different_ingredients":
+        retry_url, retry_label = url_for("compare", a=shown["a"]["id"]), "Choose another product to compare with A"
     else:
-        retry_url = url_for("compare")
+        retry_url, retry_label = url_for("compare"), "Start again"
+
     return render_template(
-        "compare.html", sides=sides, result=result, both_shown=both_shown, messages=messages,
-        rate=rate, retry_url=retry_url,
+        "compare.html", result=result, shown=shown, both_shown=both_shown, messages=messages,
+        groups=groups, group_sections=group_sections([(g["name"], f" ({g['products']})") for g in groups]),
+        group=group, ingredients=ingredients, ingredient=ingredient,
+        ingredient_label=MAIN_INGREDIENT_LABELS.get(ingredient), options=options,
+        selected={side: shown[side]["id"] if shown[side] else None for side in ("a", "b")},
+        facts=facts, rate=rate, retry_url=retry_url, retry_label=retry_label,
+        shared_label=join_labels(result["shared_main"]) if result["shared_main"] else None,
+        top_n=main_ingredients_content.TOP_N,
     )
 
 
@@ -368,8 +453,8 @@ def tip_cards(data):
     return cards
 
 
-@app.route("/research")
-def research():
+@app.route("/science")
+def science():
     term = request.args.get("q")
     reviews_only = request.args.get("reviews") == "1"
     searched = term is not None and term.strip() != ""
@@ -377,12 +462,27 @@ def research():
     saved_on = None
     if result and result["source"] == "stale_cache":
         saved_on = datetime.fromisoformat(result["fetched_at"]).strftime("%d %b %Y").lstrip("0")
+    # The At a glance box: an ingredient with a card shows the card (fixed text with sources, no PubMed
+    # counts are asked for); one without shows the topic counts when they are available, else no box.
+    card = get_ingredient_card(term) if result and result["status"] == "ok" else None
+    glance = None
+    if result and result["status"] == "ok" and card is None:
+        glance = get_ingredient_glance(term, app.config["DATABASE"])
+        if glance["status"] != "ok":
+            glance = None
     return render_template(
-        "research.html", result=result, content=research_content, reviews_only=reviews_only,
+        "science.html", result=result, content=science_content, cards=cards_content, reviews_only=reviews_only, glance=glance, card=card,
         term_text=" ".join((term or "").split())[:60], saved_on=saved_on,
-        quick_links=[{"name": name, "url": url_for("research", q=name, **({"reviews": "1"} if reviews_only else {}))}
-                     for name in research_content.QUICK_LINKS],
+        paper_groups=group_papers(result["papers"]) if result else [],
+        quick_links=[{"name": name, "url": url_for("science", q=name, **({"reviews": "1"} if reviews_only else {}))}
+                     for name in science_content.QUICK_LINKS],
     )
+
+
+@app.route("/research")
+def research():
+    """The page was called Research before it became Ingredient Science: old links still work."""
+    return redirect(url_for("science", q=request.args.get("q"), reviews=request.args.get("reviews")), code=301)
 
 
 @app.route("/today")
@@ -455,6 +555,7 @@ def insights():
         loved_products=loved_products, well_reviewed=well_reviewed, price_bands=price_bands,
         ingredients=ingredient_bars(data["ingredients"]), takeaways=build_takeaways(data),
         message=message, rate=rate, group=data["scope_group"],
+        group_sections=group_sections([(g["name"], f" ({g['products']})") for g in data["selector_groups"]]),
     )
 
 

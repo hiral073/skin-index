@@ -103,14 +103,15 @@ def test_no_email_address_is_written_in_the_code_or_the_config():
     assert not re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", source)
 
 
-def test_the_research_page_sends_the_email_when_the_variable_is_set(client, pubmed_api, monkeypatch):
+def test_the_science_page_sends_the_email_when_the_variable_is_set(client, pubmed_api, monkeypatch):
     three(pubmed_api)
     monkeypatch.setenv("NCBI_EMAIL", "contact@example.org")
-    assert client.get("/research?q=retinol").status_code == 200
+    assert client.get("/science?q=retinol").status_code == 200
     assert all(params["email"] == "contact@example.org" for _s, params, _t in pubmed_api.calls)
+    first = len(pubmed_api.calls)
     monkeypatch.delenv("NCBI_EMAIL")
-    assert client.get("/research?q=niacinamide").status_code == 200
-    assert all("email" not in params for _s, params, _t in pubmed_api.calls[2:])
+    assert client.get("/science?q=niacinamide").status_code == 200
+    assert len(pubmed_api.calls) > first and all("email" not in params for _s, params, _t in pubmed_api.calls[first:])
 
 
 def test_only_the_ten_most_relevant_are_listed(pubmed_api):

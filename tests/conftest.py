@@ -221,12 +221,20 @@ class PubmedApi:
         self.error = {"esearch": None, "esummary": None}
         self.raw = {"esearch": None, "esummary": None}     # replace the whole reply body
         self.queue = {"esearch": [], "esummary": []}       # one-shot (status, headers) answers, used first
+        # count queries (esearch with retmax=0): the first key contained in the query text gives the
+        # count, else every count is the number of records; count_error does the same for failures
+        self.counts = {}
+        self.count_error = {}
 
     def add(self, pmid, title, **kwargs):
         self.records[str(pmid)] = pubmed_record(pmid, title, **kwargs)
 
     def count(self, service):
         return sum(1 for kind, _p, _t in self.calls if kind == service)
+
+    def count_queries(self):
+        """The query text of every count call (esearch with retmax=0), in order."""
+        return [p["term"] for kind, p, _t in self.calls if kind == "esearch" and str(p.get("retmax")) == "0"]
 
     def __call__(self, url, params=None, timeout=None, **kwargs):
         service = "esearch" if "esearch" in url else "esummary" if "esummary" in url else None
@@ -242,6 +250,14 @@ class PubmedApi:
             raise self.error[service]
         if self.raw[service] is not None:
             return FakeResponse(self.raw[service], self.status[service])
+        if service == "esearch" and str(params.get("retmax")) == "0":
+            query = params.get("term", "")
+            for key, error in self.count_error.items():
+                if key in query:
+                    raise error
+            count = next((n for key, n in self.counts.items() if key in query), len(self.records))
+            return FakeResponse({"header": {"type": "esearch"},
+                                 "esearchresult": {"count": str(count), "idlist": []}}, self.status[service])
         if service == "esearch":
             ids = self.search_ids if self.search_ids is not None else list(self.records)
             ids = ids[: int(params.get("retmax", 20))]

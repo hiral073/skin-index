@@ -150,6 +150,7 @@ def test_get_product_detail_returns_fields_and_ingredients_in_label_order(db_pat
         "id": pid, "name": "Bravo Cream", "brand": "Dew Labs", "category": "Moisturizers",
         "compare_group": "Moisturizers",
         "size_text": "100 mL", "price": 20.0, "price_per_ml": 0.2,
+        "loves_count": None, "rating": None, "reviews": None,
         "ingredients": [
             {"name": "Water", "stated_percent": None},
             {"name": "Glycerin", "stated_percent": None},

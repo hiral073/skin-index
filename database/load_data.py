@@ -8,7 +8,8 @@ from contextlib import closing
 
 import pandas as pd
 
-from database.db import BASE_DIR, COMPARE_DROPDOWN_MAX, get_db, init_db
+from content.compare_groups import GROUP_MERGES, GROUP_SEPARATOR, HIDDEN_GROUPS
+from database.db import BASE_DIR, get_db, init_db
 
 CSV_PATH = os.path.join(BASE_DIR, "data", "product_info.csv")
 COLUMNS = [
@@ -37,7 +38,6 @@ STRENGTH_EXCLUDED = {"Value & Gift Sets", "Mini Size"}  # secondary categories l
 # Comparison groups: the most specific category level (third, else second). Mini sizes and
 # gift sets mix every kind of product, so they get no group and are never compared.
 NO_GROUP_CATEGORIES = {"Value & Gift Sets", "Mini Size"}
-GROUP_SEPARATOR = " › "  # "Eye Care › Anti-Aging"
 THIRD_LEVEL, SECOND_LEVEL = "third level", "second level"
 
 # Outcome of looking at one ingredient piece
@@ -230,6 +230,17 @@ def compare_group(secondary, tertiary, clashing=frozenset()):
     return None, None
 
 
+def apply_group_cleanup(group, level):
+    """(group, level) after the cleanup map in `content/compare_groups.py`.
+
+    A hidden group gives (None, None); a merged group gets its new name; any other group,
+    and a product with no group, is returned unchanged.
+    """
+    if group in HIDDEN_GROUPS:
+        return None, None
+    return GROUP_MERGES.get(group, group), level
+
+
 class StrengthReport:
     """What the strength parsing did to the kept products, for the loader's printed report."""
 
@@ -307,10 +318,13 @@ def clean_products(df, report=None):
         group, group_level = compare_group(
             row.secondary_category, getattr(row, "tertiary_category", None), clashing
         )
+        raw_group = group
+        group, group_level = apply_group_cleanup(group, group_level)
         products.append({
             "name": row.product_name,
             "brand": row.brand_name,
             "category": None if pd.isna(row.secondary_category) else row.secondary_category,
+            "raw_group": raw_group,
             "compare_group": group,
             "group_level": group_level,
             "loves_count": whole_number(getattr(row, "loves_count", None)),
@@ -419,12 +433,22 @@ def print_group_report(products):
     for category, n in sorted(ungrouped.items(), key=lambda kv: str(kv[0])):
         print(f"      {category}: {n}")
     print(f"  {'groups':<40} {len(sizes):>6}")
-    big = [f"{g} ({n})" for g, n in sizes.most_common() if n > COMPARE_DROPDOWN_MAX]
-    print(f"  groups over {COMPARE_DROPDOWN_MAX} products (brand required first): {', '.join(big) or 'none'}")
     small = [f"{g} ({n})" for g, n in sorted(sizes.items()) if n < 2]
     print(f"  groups with one product (hidden from the picker): {', '.join(small) or 'none'}")
-    renamed = [f"{g} ({n})" for g, n in sorted(sizes.items()) if GROUP_SEPARATOR in g]
+    renamed = [f"{g} ({n})" for g, n in sorted(sizes.items())
+               if GROUP_SEPARATOR in g and g not in GROUP_MERGES.values()]
     print(f"  groups renamed with their second level: {', '.join(renamed) or 'none'}")
+
+    before = Counter(p.get("raw_group") for p in products if p.get("raw_group"))
+    print("\nGroup cleanup (content/compare_groups.py; original categories untouched):")
+    for old, new in sorted(GROUP_MERGES.items()):
+        if before[old]:
+            print(f"  {old} ({before[old]}) -> {new}")
+    for old in sorted(HIDDEN_GROUPS):
+        if before[old]:
+            print(f"  {old} ({before[old]}) -> no group")
+    for new in sorted(set(GROUP_MERGES.values())):
+        print(f"  {new}: {before[new]} -> {sizes[new]}")
 
 
 def print_popularity_report(products):

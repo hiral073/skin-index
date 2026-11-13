@@ -500,8 +500,11 @@ def test_clean_products_sets_groups_levels_and_renames_clashes():
         "Cream No Level": ("Moisturizers", SECOND_LEVEL),   # same name, so the same group
         "Tiny Serum": (None, None),
         "Gift Kit": (None, None),
-        "Device": (f"High Tech Tools{AA}Anti-Aging", THIRD_LEVEL),
-        "Concern": (f"Shop by Concern{AA}Anti-Aging", THIRD_LEVEL),
+        "Device": (None, None),       # hidden by the group cleanup (not a product type)
+        "Concern": (None, None),
+    }
+    assert {p["name"]: p["raw_group"] for p in products if p["name"] in ("Device", "Concern")} == {
+        "Device": f"High Tech Tools{AA}Anti-Aging", "Concern": f"Shop by Concern{AA}Anti-Aging",
     }
 
 
@@ -536,13 +539,15 @@ def test_main_prints_the_comparison_group_report(tmp_path, capsys):
     main(str(csv), db)
     out = capsys.readouterr().out
     assert "Comparison groups" in out
-    assert re.search(r"products with a group\s+4\n", out)
+    assert re.search(r"products with a group\s+2\n", out)
     assert re.search(r"fell back to the second level\s+1\n", out)
     assert "Lip Balms & Treatments: 1" in out
-    assert re.search(r"products with no group\s+1\n", out)
+    assert re.search(r"products with no group\s+3\n", out)                # Tiny, and the two cleaned-up ones
     assert "Mini Size: 1" in out and "Value & Gift Sets: 0" in out      # both always listed
-    assert f"High Tech Tools{AA}Anti-Aging (1)" in out and f"Shop by Concern{AA}Anti-Aging (1)" in out
+    assert "High Tech Tools: 1" in out and "Shop by Concern: 1" in out
     assert "groups with one product (hidden from the picker)" in out
+    assert f"High Tech Tools{AA}Anti-Aging (1) -> no group" in out
+    assert f"Shop by Concern{AA}Anti-Aging (1) -> no group" in out
 
 
 def test_load_products_replaces_existing_rows(tmp_path):

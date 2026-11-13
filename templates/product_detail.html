@@ -60,5 +60,9 @@
     {% else %}
     <p>{{ na() }}</p>
     {% endif %}
+
+    {% if science_links %}
+    <p class="science-links">{% for link in science_links %}<a class="btn-ghost" href="{{ link.url }}">{{ link.label }}</a> {% endfor %}</p>
+    {% endif %}
 </section>
 {% endblock %}

@@ -188,3 +188,27 @@ def _search(term, reviews_only):
     for paper in papers:
         del paper["all_types"]
     return papers[:PUBMED_CONFIG["show"]]
+
+
+def topic_query(term, topic):
+    """'<term> AND "<topic>"': the topic is one of our fixed phrases, so quoting it is safe."""
+    return f'{term} AND "{topic}"'
+
+
+def count_pubmed(query):
+    """How many papers PubMed finds for a ready-made query (one esearch call, no details).
+
+    Uses the same rate limit, timeout and 429 handling as the other calls, but not the shared
+    "leave PubMed alone for 10 s" memory: the caller decides when a run of failed counts stops.
+    Raises PubmedError if PubMed fails or sends a reply we cannot read.
+    """
+    found = _get_json(PUBMED_CONFIG["esearch_url"], {
+        "db": "pubmed", "term": query, "retmax": 0, "retmode": "json",
+    })
+    result = found.get("esearchresult")
+    count = result.get("count") if isinstance(result, dict) else None
+    if isinstance(count, str) and count.isdigit():
+        return int(count)
+    if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+        return count
+    raise PubmedError("PubMed sent a count reply we could not read.")

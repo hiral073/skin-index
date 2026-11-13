@@ -1,0 +1,10 @@
+{# <option>s for compare groups; a group with subcategories (Sunscreen › Face) is one <optgroup>. #}
+{% macro group_options(sections, selected) %}
+{% for s in sections %}
+{% if s.label %}<optgroup label="{{ s.label }}">{% endif %}
+{% for o in s.options %}
+<option value="{{ o.value }}" {% if o.value == selected %}selected{% endif %}>{{ o.label }}</option>
+{% endfor %}
+{% if s.label %}</optgroup>{% endif %}
+{% endfor %}
+{% endmacro %}

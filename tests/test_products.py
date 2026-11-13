@@ -7,7 +7,7 @@ import pytest
 
 from database.db import get_db
 
-# name, brand, category, price, size_ml
+# name, brand, group (the category filter and column), price, size_ml
 PRODUCTS = [
     ("Alpha Serum", "Glow Co", "Serums", 30.0, 30.0),       # 1.0000 / ml
     ("Bravo Cream", "Dew Labs", "Moisturizers", 20.0, 100.0),  # 0.2000 / ml
@@ -19,9 +19,9 @@ PRODUCTS = [
 def add_products(db_path, rows):
     with closing(get_db(db_path)) as conn, conn:
         conn.executemany(
-            "INSERT INTO products (name, brand, category, price, size_text, size_ml, price_per_ml)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [(n, b, c, p, f"{s:g} mL", s, round(p / s, 4)) for n, b, c, p, s in rows],
+            "INSERT INTO products (name, brand, category, compare_group, price, size_text, size_ml, price_per_ml)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(n, b, c, c, p, f"{s:g} mL", s, round(p / s, 4)) for n, b, c, p, s in rows],
         )
 
 
@@ -316,3 +316,46 @@ def test_out_of_range_page_is_clamped(many, client, page, expected_rows):
     response = client.get("/products", query_string={"page": page})
     assert response.status_code == 200
     assert row_count(response) == expected_rows
+
+
+@pytest.fixture
+def cleaned(app):
+    """Products whose original category differs from their cleaned group, plus one with no group."""
+    with closing(get_db(app.config["DATABASE"])) as conn, conn:
+        conn.executemany(
+            "INSERT INTO products (name, brand, category, compare_group, price, size_text, size_ml, price_per_ml)"
+            " VALUES (?, 'B', ?, ?, 10, '50 mL', 50, 0.2)",
+            [("Face Shield", "Sunscreen", "Sunscreen"), ("Body Shield", "Sunscreen", "Sunscreen"),
+             ("Foam Wash", "Cleansers", "Face Wash & Cleansers"), ("Night Pot", "Moisturizers", "Moisturizers"),
+             ("Tiny Pot", "Mini Size", None)],
+        )
+    return app
+
+
+def test_the_category_filter_uses_the_cleaned_group_not_the_original_category(cleaned, client):
+    def shown(**args):
+        html = client.get("/products", query_string=args).get_data(as_text=True)
+        return [n for n in ("Face Shield", "Body Shield", "Foam Wash", "Night Pot", "Tiny Pot") if n in html]
+
+    assert shown(category="Face Wash & Cleansers") == ["Foam Wash"]
+    assert shown(category="Cleansers") == []                       # an original category is not a group
+    assert shown(category="Sunscreen") == ["Face Shield", "Body Shield"]
+    assert shown(category="Mini Size") == []
+    assert sorted(shown()) == sorted(["Face Shield", "Body Shield", "Foam Wash", "Night Pot", "Tiny Pot"])
+
+
+def test_the_dropdown_lists_only_cleaned_groups_and_the_column_shows_the_group(cleaned, client):
+    html = client.get("/products").get_data(as_text=True)
+    options = re.findall(r'<option value="([^"]+)"', html)
+    groups = [o for o in options if o not in ("name", "price", "price_per_ml")]
+    assert groups == ["Face Wash &amp; Cleansers", "Moisturizers", "Sunscreen"]    # no Cleansers, no Mini Size
+    assert "<td>Face Wash &amp; Cleansers</td>" in html and "<td>Cleansers</td>" not in html
+    assert "<td>—</td>" in html                                                # the product with no group
+
+
+def test_the_original_category_stays_on_the_detail_page(cleaned, client):
+    with closing(get_db(cleaned.config["DATABASE"])) as conn:
+        pid = conn.execute("SELECT id FROM products WHERE name = 'Foam Wash'").fetchone()[0]
+        tiny = conn.execute("SELECT id FROM products WHERE name = 'Tiny Pot'").fetchone()[0]
+    assert "Cleansers" in client.get(f"/products/{pid}").get_data(as_text=True)
+    assert "Mini Size" in client.get(f"/products/{tiny}").get_data(as_text=True)
