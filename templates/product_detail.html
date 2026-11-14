@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_avoid.html" import result, based_on %}
 
 {% block title %}{{ product.name }} · Skin Index{% endblock %}
 
@@ -6,7 +7,7 @@
 
 {% block content %}
 <section class="detail-page">
-    <a class="back-link" href="{{ back_url }}">&larr; Back to results</a>
+    <a class="back-link" href="{{ back_url }}"><span class="arrow arrow-left" aria-hidden="true"></span>Back to results</a>
 
     <header class="detail-header">
         <h1 class="page-title">{{ product.name }}</h1>
@@ -46,12 +47,22 @@
 
     <p class="compare-cta"><a class="btn-ghost" href="{{ url_for('compare', a=product.id) }}">Compare with another product</a></p>
 
+    {% if avoid_check and avoid_check.status != 'no_list' %}
+    <section class="avoid-detail" aria-labelledby="avoid-detail-title">
+        <h2 class="avoid-title" id="avoid-detail-title">{{ avoid.DETAIL_TITLE }}</h2>
+        <p class="avoid-note">{{ avoid.CHECKED_AGAINST }} {{ avoid_check.terms | join(', ') }}</p>
+        {{ result(avoid_check, avoid) }}
+        {{ based_on(avoid) }}
+        <p class="avoid-note"><a href="{{ url_for('products') }}#avoid-filter">{{ avoid.EDIT_LINK }}</a></p>
+    </section>
+    {% endif %}
+
     <h2 class="section-title">Ingredients</h2>
     {% if product.ingredients %}
     <p class="ingredients-note">Ingredients are listed roughly from highest to lowest concentration.</p>
     <ol class="ingredient-list">
         {% for ingredient in product.ingredients %}
-        <li>{{ ingredient.name }}{% if ingredient.stated_percent is not none %} <span class="stated-percent">{{ ingredient.stated_percent | percent }}% (stated by brand)</span>{% endif %}</li>
+        <li{% if avoid_check and ingredient.name in avoid_check.matched_ingredients %} class="avoid-hit"{% endif %}>{{ ingredient.name }}{% if avoid_check and ingredient.name in avoid_check.matched_ingredients %} <span class="avoid-hit-label">{{ avoid.MATCHED }} your list</span>{% endif %}{% if ingredient.stated_percent is not none %} <span class="stated-percent">{{ ingredient.stated_percent | percent }}% (stated by brand)</span>{% endif %}</li>
         {% endfor %}
     </ol>
     {% if product.ingredients | selectattr('stated_percent', 'ne', none) | list %}

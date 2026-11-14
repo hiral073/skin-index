@@ -1,0 +1,66 @@
+{% from "_icons.html" import remove_icon %}
+{# The avoid list pieces shared by Products, a product page and Compare. Texts: content/avoid_list.py #}
+
+{% macro matched_text(check, limit=3) %}{{ check.matched_ingredients[:limit] | join(', ') }}{% if check.matched_ingredients | length > limit %} +{{ check.matched_ingredients | length - limit }} more{% endif %}{% endmacro %}
+
+{# A small tag in a product row: what was found, or that the list could not be checked #}
+{% macro row_tag(check, avoid) %}
+{% if check and check.status == 'found' %}
+<span class="avoid-tag"><span class="tag tag-lists">{{ avoid.LISTS }} {{ check.lists | join(', ') }}</span>
+<span class="tag-matched">{{ avoid.MATCHED }} {{ matched_text(check) }}</span></span>
+{% elif check and check.status == 'no_ingredients' %}
+<span class="avoid-tag"><span class="tag tag-unknown">{{ avoid.NO_INGREDIENTS }}</span></span>
+{% endif %}
+{% endmacro %}
+
+{# The result for one product, in full #}
+{% macro result(check, avoid) %}
+{% if check.status == 'found' %}
+<ul class="avoid-found">
+    {% for m in check.matches %}
+    <li><span class="tag tag-lists">{{ avoid.LISTS }} {{ m.term }}</span> <span class="tag-matched">{{ avoid.MATCHED }} {{ m.ingredients | join(', ') }}</span></li>
+    {% endfor %}
+</ul>
+{% elif check.status == 'not_found' %}
+<p class="avoid-none">{{ avoid.NOT_FOUND }}</p>
+{% elif check.status == 'no_ingredients' %}
+<p class="avoid-unknown">{{ avoid.NO_INGREDIENTS }}</p>
+{% endif %}
+{% endmacro %}
+
+{% macro chips(terms, removable=False, avoid=None) %}
+<ul class="chips" id="avoid-chips">
+    {% for t in terms %}
+    <li class="chip"><span>{{ t }}</span>{% if removable %}<button type="button" class="chip-remove" data-remove="{{ t }}" aria-label="{{ avoid.REMOVE_LABEL }} {{ t }}">{{ remove_icon() }}</button>{% endif %}</li>
+    {% endfor %}
+</ul>
+{% endmacro %}
+
+{# "Ingredients to avoid": the one place where the list is edited. It sits inside the Products filter form
+   (static/js/avoid.js does the editing), so the hide switch is sent with the search. Open only when the
+   list has items. The text box has no name, so it is never sent; the buttons are not submit buttons. #}
+{% macro filter_section(avoid, terms, hide, hidden_count) %}
+<details class="avoid-filter" id="avoid-filter"{% if terms %} open{% endif %}>
+    <summary class="avoid-summary">{{ avoid.FILTER_LABEL }}{% if terms %} <span class="avoid-count">({{ terms | length }})</span>{% endif %}</summary>
+    <div class="avoid-body">
+        <p class="avoid-note">{{ avoid.STORE_NOTE }}</p>
+        <label class="picker-label" for="avoid-input">{{ avoid.INPUT_LABEL }}</label>
+        <div class="avoid-row">
+            <input class="form-input" id="avoid-input" type="text" maxlength="{{ avoid.MAX_TERM_LENGTH }}" autocomplete="off">
+            <button class="btn-primary" type="button" id="avoid-add">{{ avoid.ADD_LABEL }}</button>
+            <button class="btn-ghost" type="button" id="avoid-clear"{% if not terms %} hidden{% endif %}>{{ avoid.CLEAR_LABEL }}</button>
+        </div>
+        <p class="avoid-error" id="avoid-error" role="alert" hidden>{{ avoid.INPUT_ERROR }}</p>
+        {% if terms %}{{ chips(terms, True, avoid) }}{% else %}<p class="avoid-empty">{{ avoid.EMPTY_HINT }}</p>{% endif %}
+        <label class="hide-switch{% if not terms %} is-disabled{% endif %}"{% if not terms %} title="{{ avoid.HIDE_NEEDS_LIST }}"{% endif %}>
+            <input type="checkbox" name="hide" value="1" {% if hide %}checked{% endif %}{% if not terms %} disabled{% endif %}>
+            {{ avoid.HIDE_LABEL }}
+        </label>
+        {% if hide and hidden_count %}<p class="avoid-hidden">{{ avoid.hidden_text(hidden_count) }}</p>{% endif %}
+        <p class="avoid-note">{{ avoid.HOW_IT_MATCHES }}</p>
+        <noscript><p class="avoid-note">{{ avoid.NO_JAVASCRIPT }}</p></noscript>
+    </div>
+</details>
+{% endmacro %}
+
+{% macro based_on(avoid) %}<p class="ingredients-note avoid-based-on">{{ avoid.BASED_ON_NOTE }}</p>{% endmacro %}

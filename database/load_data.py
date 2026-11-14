@@ -10,6 +10,7 @@ import pandas as pd
 
 from content.compare_groups import GROUP_MERGES, GROUP_SEPARATOR, HIDDEN_GROUPS
 from database.db import BASE_DIR, get_db, init_db
+from database.ingredient_match import synonym_name
 
 CSV_PATH = os.path.join(BASE_DIR, "data", "product_info.csv")
 COLUMNS = [
@@ -19,7 +20,6 @@ COLUMNS = [
 ]
 
 ML_PER_FL_OZ = 29.5735
-WATER_WORDS = {"water", "aqua", "eau"}
 
 # Stated strengths, e.g. "Salicylic Acid 2.0%", "Zinc Oxide (12.025%)", "3% Procapil"
 NUMBER = r"(?:\d+(?:\.\d+)?|\.\d+)"
@@ -84,11 +84,9 @@ def parse_size_ml(text):
 
 
 def canonical_ingredient(name):
-    """Fold Water / Aqua / Eau variants (e.g. 'Water (Aqua)') into 'Water'."""
-    words = re.findall(r"[a-z]+", name.lower())
-    if words and set(words) <= WATER_WORDS:
-        return "Water"
-    return name
+    """Fold the two synonym rules (see `database/ingredient_match.py`): 'Water (Aqua)' becomes
+    'Water' and 'Fragrance (Parfum)' becomes 'Fragrance'. Any other name is returned unchanged."""
+    return synonym_name(name) or name
 
 
 def ingredient_pieces(value):

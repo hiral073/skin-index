@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_group_options.html" import group_options %}
+{% from "_avoid.html" import filter_section, row_tag, based_on %}
 
 {% block title %}Products · Skin Index{% endblock %}
 
@@ -14,13 +15,14 @@
             <option value="">All categories</option>
             {{ group_options(category_sections, category) }}
         </select>
+        {{ filter_section(avoid, avoid_terms, hide, hidden_count) }}
         <select class="form-input" name="sort" aria-label="Sort by">
             {% for key, label in sort_options.items() %}
             <option value="{{ key }}" {% if key == sort %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
         <button class="btn-primary" type="submit">Search</button>
-        {% if q or category or sort != 'name' %}
+        {% if q or category or sort != 'name' or hide %}
         <a class="btn-ghost" href="{{ url_for('products') }}">Clear</a>
         {% endif %}
     </form>
@@ -43,7 +45,7 @@
             <tbody>
                 {% for p in products %}
                 <tr>
-                    <td><a class="product-link" href="{{ url_for('product_detail', id=p['id'], **detail_args) }}">{{ p['name'] }}</a> <a class="row-compare" href="{{ url_for('compare', a=p['id']) }}">Compare</a></td>
+                    <td><a class="product-link" href="{{ url_for('product_detail', id=p['id'], **detail_args) }}">{{ p['name'] }}</a> <a class="row-compare" href="{{ url_for('compare', a=p['id']) }}">Compare</a>{{ row_tag(avoid_checks.get(p['id']), avoid) }}</td>
                     <td>{{ p['brand'] }}</td>
                     <td>{{ p['compare_group'] or '—' }}</td>
                     <td>{{ p['size_text'] }}</td>
@@ -55,21 +57,23 @@
         </table>
     </div>
 
+    {% if avoid_terms %}{{ based_on(avoid) }}{% endif %}
+
     {% if rate %}
     <p class="rate-note">Converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}). Approximate, not Indian retail prices.{% if rate.stale %} (older rate){% endif %}</p>
     {% endif %}
 
     <nav class="pagination" aria-label="Pagination">
         {% if prev_url %}
-        <a class="btn-ghost" href="{{ prev_url }}" rel="prev">&larr; Previous</a>
+        <a class="btn-ghost" href="{{ prev_url }}" rel="prev"><span class="arrow arrow-left" aria-hidden="true"></span>Previous</a>
         {% else %}
-        <span class="btn-ghost disabled">&larr; Previous</span>
+        <span class="btn-ghost disabled"><span class="arrow arrow-left" aria-hidden="true"></span>Previous</span>
         {% endif %}
         <span class="page-status">Page {{ page }} of {{ pages }}</span>
         {% if next_url %}
-        <a class="btn-ghost" href="{{ next_url }}" rel="next">Next &rarr;</a>
+        <a class="btn-ghost" href="{{ next_url }}" rel="next">Next<span class="arrow arrow-right" aria-hidden="true"></span></a>
         {% else %}
-        <span class="btn-ghost disabled">Next &rarr;</span>
+        <span class="btn-ghost disabled">Next<span class="arrow arrow-right" aria-hidden="true"></span></span>
         {% endif %}
     </nav>
     {% else %}
@@ -79,4 +83,8 @@
     </div>
     {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/avoid.js') }}" data-cookie="{{ avoid.COOKIE_NAME }}" data-days="{{ avoid.COOKIE_DAYS }}" data-max-terms="{{ avoid.MAX_TERMS }}" data-min-length="{{ avoid.MIN_TERM_LENGTH }}" data-max-length="{{ avoid.MAX_TERM_LENGTH }}"></script>
 {% endblock %}

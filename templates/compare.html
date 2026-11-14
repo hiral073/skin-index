@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_group_options.html" import group_options %}
+{% from "_avoid.html" import result as avoid_result, based_on %}
 
 {% block title %}Compare · Skin Index{% endblock %}
 
@@ -114,6 +115,11 @@
                 <tr><th scope="row">Reviews</th>
                     <td>{% if a.reviews is not none %}{{ '{:,}'.format(a.reviews) }}{% else %}{{ na() }}{% endif %}</td>
                     <td>{% if b.reviews is not none %}{{ '{:,}'.format(b.reviews) }}{% else %}{{ na() }}{% endif %}</td></tr>
+                {% if avoid_checks %}
+                <tr><th scope="row">{{ avoid.COMPARE_ROW }}</th>
+                    <td>{{ avoid_result(avoid_checks.a, avoid) }}</td>
+                    <td>{{ avoid_result(avoid_checks.b, avoid) }}</td></tr>
+                {% endif %}
                 {% if ing %}
                 <tr><th scope="row">Ingredients both have ({{ ing.shared_count }})</th>
                     <td colspan="2" class="ingredient-text">{{ name_list(ing.shared) }}</td></tr>
@@ -134,8 +140,12 @@
     {% if result.comparable %}
     <p class="ingredients-note">Likes, ratings and reviews come from one retailer's site and are as of March 2023.</p>
     <p class="ingredients-note">Ingredient order is a rough guide. Amounts are not in our data.</p>
-    <p class="ingredients-note">Ingredient names are compared ignoring capital letters, and Water, Aqua and Eau count as the same ingredient. No other names are matched or merged.</p>
+    <p class="ingredients-note">Ingredient names are compared ignoring capital letters. Water, Aqua and Eau count as the same ingredient, and so do Fragrance and Parfum. No other names are matched or merged.</p>
     <p class="ingredients-note">Shared ingredients show what the two products have in common. They do not mean the formulas behave the same.</p>
+    {% if avoid_checks %}
+    {{ based_on(avoid) }}
+    <p class="avoid-note"><a href="{{ url_for('products') }}#avoid-filter">{{ avoid.EDIT_LINK }}</a></p>
+    {% endif %}
     {% else %}
     <p class="notice-action"><a class="btn-primary" href="{{ retry_url }}">{{ retry_label }}</a></p>
     {% endif %}

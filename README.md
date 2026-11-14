@@ -2,7 +2,7 @@
 
 A Flask app for understanding skincare products: ingredients, price per ml, product comparison and shopper-engagement insights, plus live pages for today's sun and air conditions and for ingredient science, and later ingredient tools.
 
-**Status:** in progress. Steps 1-7, 9 and 10 are done (database, dataset loader, product search, INR prices, product page, compare, insights, today page). The rest is built step by step.
+**Status:** in progress. Steps 1-7, 9, 10 and 12c are done (database, dataset loader, product search, INR prices, product page, compare, insights, today page). The rest is built step by step.
 
 ## Features and roadmap
 1. Database setup (SQLite) — done
@@ -20,7 +20,7 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
 12. Avoid list
     - 12a. Dropped: automatic merging of ingredient names could combine chemically different substances, so ingredient text is kept exactly as the brand wrote it.
     - 12b. Dropped: already covered by the sourced At a glance cards on the Ingredient Science page.
-    - 12c. "My avoid list": type ingredients to avoid, hide products that list them, and see which ingredient matched
+    - 12c. "My avoid list": type ingredients to avoid, hide products that list them, and see which ingredient matched — done
 13. Engineering polish: GitHub Actions CI, a test hook, a claims-reviewer check, an automated scan of the pages for medical-claim wording, and screenshots
 
 Not planned: login, an in-app AI assistant, Indian product data, product recommendations.
@@ -40,6 +40,15 @@ INR prices are converted from the US prices using the daily USD to INR rate from
 Some brands print a strength next to an ingredient (for example "Zinc Oxide 12.025%"). The product page shows it as "12.025% (stated by brand)". Strengths are never estimated: if a brand prints none, nothing is shown, and a missing percentage means "not stated", not "low". Unclear text is left as it was written.
 
 Skin Index shows information only. It does not recommend products, make skin-type or skin-concern claims, or give medical advice. Patch-test new products, and see a dermatologist about skin concerns.
+
+## My avoid list
+
+On the Products page, open "Ingredients to avoid" in the filters (next to the Group filter), type an ingredient you want to avoid and press Add (or Enter). The section is closed while the list is empty and open once it has items. Each word or phrase becomes a chip you can remove, and "Clear my list" empties the list. Every word or phrase is matched as whole words, ignoring capital letters, in the ingredient list as the brand wrote it, so "alcohol" finds "Cetyl Alcohol" but not "Alcoholic". The only synonyms are fragrance/parfum and water/aqua/eau; everything else (for example retinol and retinal) is exact.
+
+- A row, the product page and the Compare page show a small tag such as "Lists: fragrance, matched: Fragrance (Parfum)" when something is found. Nothing found says "None found in the listed ingredients", never that a product is free of anything. A product with no ingredient list says "Ingredient list not available, can't check" and is never treated as clear.
+- The switch "Hide products that list my avoided ingredients" removes the matching products from the list; products that cannot be checked stay.
+- Privacy: the list is stored in your browser (a cookie your own action sets, kept for 30 days, up to 20 items). The site reads it with each request to filter and tag results, but does not save it, log it or put it in a link, and there are no accounts. Clearing the list removes the cookie.
+- It is based on the brand's own ingredient list, which can be incomplete. Check the product label.
 
 ## Run it (Windows PowerShell)
 

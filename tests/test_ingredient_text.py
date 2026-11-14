@@ -72,3 +72,18 @@ def test_no_other_water_name_is_matched(db_path, other):
     a, b = load(db_path, [["Water", "Niacinamide"], [other, "Niacinamide"]])
     ing = compare_products(a, b, db_path)["ingredients"]
     assert ing["shared"] == ["Niacinamide"] and ing["only_a"] == ["Water"] and ing["only_b"] == [other]
+
+
+@pytest.mark.parametrize("written", ["Parfum", "PARFUM", "Fragrance", "Fragrance (Parfum)", "Parfum/Fragrance"])
+def test_fragrance_and_parfum_count_as_the_same_ingredient(db_path, written):
+    a, b = load(db_path, [["Fragrance", "Niacinamide"], [written, "Niacinamide"]])
+    ing = compare_products(a, b, db_path)["ingredients"]
+    assert ing["shared"] == ["Fragrance", "Niacinamide"] and not ing["only_a"] and not ing["only_b"]
+
+
+@pytest.mark.parametrize("other", ["Natural Fragrance", "Fragrance Mix", "Perfume", "Fragrances"])
+def test_no_other_fragrance_name_is_matched(db_path, other):
+    a, b = load(db_path, [["Fragrance", "Niacinamide"], [other, "Niacinamide"]])
+    ing = compare_products(a, b, db_path)["ingredients"]
+    assert ing["shared"] == ["Niacinamide"] and ing["only_a"] == ["Fragrance"] and ing["only_b"] == [other]
+

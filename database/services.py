@@ -7,11 +7,13 @@ from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
+from content import avoid_list as avoid_content
 from content import science as science_content
 from content import ingredient_cards as cards_content
 from content import main_ingredients as main_ingredients_content
 from content import science as science_content
 from database.db import get_db, init_db
+from database.ingredient_match import ingredient_key, term_matches
 from live.currency import CurrencyError, fetch_usd_inr
 from live.pubmed import PubmedError, count_pubmed, search_pubmed, topic_query
 from live.weather import WeatherError, fetch_air_quality, fetch_forecast, search_places
@@ -283,17 +285,122 @@ def compare_products(a_id, b_id, db_path=None):
 
 
 def _compare_ingredients(a_rows, b_rows):
+    """Shared / only-in-A / only-in-B ingredient names. Two names are the same ingredient when
+    `ingredient_key` says so (same text ignoring capital letters, and the two synonym rules);
+    nothing else is matched. Names are shown as stored."""
     if not a_rows or not b_rows:
         return None
-    a_ids = {r["ingredient_id"] for r in a_rows}
-    b_ids = {r["ingredient_id"] for r in b_rows}
-    shared = [r["name"] for r in a_rows if r["ingredient_id"] in b_ids]
-    only_a = [r["name"] for r in a_rows if r["ingredient_id"] not in b_ids]
-    only_b = [r["name"] for r in b_rows if r["ingredient_id"] not in a_ids]
+
+    def distinct(rows):
+        seen, names = set(), []
+        for row in rows:
+            key = ingredient_key(row["name"])
+            if key not in seen:
+                seen.add(key)
+                names.append((key, row["name"]))
+        return names
+
+    a_names, b_names = distinct(a_rows), distinct(b_rows)
+    a_keys, b_keys = {k for k, _ in a_names}, {k for k, _ in b_names}
+    shared = [name for key, name in a_names if key in b_keys]
+    only_a = [name for key, name in a_names if key not in b_keys]
+    only_b = [name for key, name in b_names if key not in a_keys]
     return {
         "shared": shared, "only_a": only_a, "only_b": only_b,
         "shared_count": len(shared), "only_a_count": len(only_a), "only_b_count": len(only_b),
     }
+
+
+# ------------------------------------------------------------------ #
+# Avoid list                                                          #
+# ------------------------------------------------------------------ #
+
+_TERM_CHARS = re.compile(r"(?:[^\W_]|[ .'/()+-])+")
+_HAS_WORD = re.compile(r"[^\W_]")
+_DOT_BETWEEN_WORDS = re.compile(r"[^\W_]\.[^\W_]")  # "name.com": a link or domain, not an ingredient
+
+
+def clean_avoid_term(text):
+    """One typed word or phrase, trimmed, lower-cased and checked; None when it is not usable.
+
+    2 to 40 characters of letters, digits, spaces and - ' . / ( ) + only, with at least one
+    letter or digit, and no domain-like text (a full stop between two letters or digits).
+    """
+    if not isinstance(text, str):
+        return None
+    term = " ".join(text.split()).lower()
+    if not avoid_content.MIN_TERM_LENGTH <= len(term) <= avoid_content.MAX_TERM_LENGTH:
+        return None
+    if not _TERM_CHARS.fullmatch(term) or not _HAS_WORD.search(term) or _DOT_BETWEEN_WORDS.search(term):
+        return None
+    return term
+
+
+def clean_avoid_terms(raw_terms):
+    """The usable terms of `raw_terms` in order: cleaned, no repeats (water and aqua are the same
+    word, so they count as a repeat), at most `MAX_TERMS`. Anything else is dropped."""
+    terms, seen = [], set()
+    for raw in list(raw_terms or [])[:100] if isinstance(raw_terms, (list, tuple)) else []:
+        term = clean_avoid_term(raw)
+        key = term and ingredient_key(term)
+        if term and key not in seen:
+            seen.add(key)
+            terms.append(term)
+        if len(terms) == avoid_content.MAX_TERMS:
+            break
+    return terms
+
+
+def check_avoid_list(avoid_terms, ingredient_names):
+    """Which of the typed words are found in a product's ingredient names. Plain data, nothing stored.
+
+    `avoid_terms` is the visitor's list (cleaned here again, so any input is safe) and
+    `ingredient_names` the product's ingredients as the brand wrote them, in label order.
+    Returns {"status", "terms", "matches", "lists", "matched_ingredients", "ingredients_checked"}:
+    - status: "no_list" (no usable term), "no_ingredients" (the product lists none, so it cannot
+      be checked and is never treated as clear), "found" or "not_found" (nothing found in the
+      listed ingredients, which says nothing about anything not listed).
+    - matches: [{"term", "ingredients"}] for each term that was found, with the ingredient names.
+    - lists: the terms that were found; matched_ingredients: those names once each, in label order.
+    A term matches whole words only, ignoring capital letters; the only synonyms are
+    water/aqua/eau and fragrance/parfum (`database/ingredient_match.py`).
+    """
+    terms = clean_avoid_terms(avoid_terms)
+    names = [n for n in (ingredient_names or []) if isinstance(n, str) and n.strip()]
+    result = {
+        "status": "no_list", "terms": terms, "matches": [], "lists": [],
+        "matched_ingredients": [], "ingredients_checked": len(names),
+    }
+    if not terms:
+        return result
+    if not names:
+        result["status"] = "no_ingredients"
+        return result
+    for term in terms:
+        found = list(dict.fromkeys(name for name in names if term_matches(term, name)))
+        if found:
+            result["matches"].append({"term": term, "ingredients": found})
+    result["lists"] = [m["term"] for m in result["matches"]]
+    result["matched_ingredients"] = [
+        name for name in dict.fromkeys(names) if any(name in m["ingredients"] for m in result["matches"])
+    ]
+    result["status"] = "found" if result["matches"] else "not_found"
+    return result
+
+
+def split_ingredients_text(text):
+    """A product's `ingredients_text` (names joined by ", ") as a list of names."""
+    return [name for name in (text or "").split(", ") if name.strip()]
+
+
+def check_product_avoid_list(avoid_terms, product_id, db_path=None):
+    """`check_avoid_list` for one product: {"product": {"id", "name", "brand"}, ...the check}, or
+    None for an unknown id. The list is used for this one call only and is not stored."""
+    product = get_product_detail(product_id, db_path)
+    if product is None:
+        return None
+    check = check_avoid_list(avoid_terms, [i["name"] for i in product["ingredients"]])
+    return {"product": {k: product[k] for k in ("id", "name", "brand")}, **check}
 
 
 # ------------------------------------------------------------------ #

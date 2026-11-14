@@ -1,9 +1,12 @@
+import json
 import math
 from contextlib import closing
 from datetime import datetime
+from urllib.parse import unquote
 
 from flask import Flask, abort, redirect, render_template, request, url_for
 
+from content import avoid_list as avoid_content
 from content import ingredient_cards as cards_content
 from content import main_ingredients as main_ingredients_content
 from content import science as science_content
@@ -11,10 +14,10 @@ from content import today_tips as today_content
 from content.compare_groups import GROUP_SEPARATOR, split_group
 from database.db import DB_PATH, get_db
 from database.services import (
-    MAIN_INGREDIENT_LABELS, TODAY_CONFIG, compare_products, escape_like, get_insights,
+    MAIN_INGREDIENT_LABELS, TODAY_CONFIG, check_avoid_list, clean_avoid_terms, compare_products, escape_like, get_insights,
     get_ingredient_card, get_ingredient_glance, get_product_detail, get_today_conditions, get_usd_inr_rate, group_papers, inr_per_ml,
     inr_price, list_group_ingredients, list_groups, list_products_in_group,
-    main_ingredients_of, search_research,
+    main_ingredients_of, search_research, split_ingredients_text,
 )
 
 PAGE_SIZE = 24
@@ -36,7 +39,7 @@ FILTER_SQL = """
 """
 COUNT_SQL = "SELECT COUNT(*) " + FILTER_SQL
 PRODUCTS_SQL = (
-    "SELECT id, name, brand, compare_group, price, size_text "
+    "SELECT id, name, brand, compare_group, price, size_text, ingredients_text "
     + FILTER_SQL
     + """
     ORDER BY
@@ -53,6 +56,33 @@ CATEGORIES_SQL = (
 
 app = Flask(__name__)
 app.config["DATABASE"] = DB_PATH  # tests point this at a temporary database
+
+# Pages that read the visitor's avoid list from their cookie. Never cached for anyone else.
+AVOID_LIST_ENDPOINTS = {"products", "product_detail", "compare"}
+
+
+def avoid_terms():
+    """The visitor's avoid list for this request: the cleaned words in their cookie, else [].
+
+    The cookie is set by the visitor's own action in the browser (static/js/avoid.js). It is read
+    here to filter and tag this one response and is never saved, logged or put in a link.
+    """
+    if "skin_index.avoid_terms" not in request.environ:    # per request, even when a test keeps one app context
+        raw = request.cookies.get(avoid_content.COOKIE_NAME, "")[:4096]
+        try:
+            terms = clean_avoid_terms(json.loads(unquote(raw))) if raw else []
+        except ValueError:
+            terms = []
+        request.environ["skin_index.avoid_terms"] = terms
+    return request.environ["skin_index.avoid_terms"]
+
+
+@app.after_request
+def keep_avoid_list_pages_private(response):
+    if request.endpoint in AVOID_LIST_ENDPOINTS:
+        response.headers["Cache-Control"] = "private"
+        response.vary.add("Cookie")
+    return response
 
 
 # ------------------------------------------------------------------ #
@@ -92,16 +122,18 @@ def landing():
     return render_template("landing.html")
 
 
-def list_args(q, category, sort, page):
-    """Search, filter, sort and page of the product list, for links that return to it.
+def list_args(q, category, sort, page, hide=False):
+    """Search, filter, sort, page and the hide switch of the product list, for links that return to it.
 
-    Defaults and unknown or invalid values become None, which url_for leaves out.
+    Defaults and unknown or invalid values become None, which url_for leaves out. The avoid list
+    itself is never part of a link: only whether the hide switch is on.
     """
     return {
         "q": q or None,
         "category": category or None,
         "sort": sort if sort in SORT_OPTIONS and sort != "name" else None,
         "page": page if page and page > 1 else None,
+        "hide": "1" if hide else None,
     }
 
 
@@ -114,31 +146,49 @@ def products():
         sort = "name"
     page = request.args.get("page", 1, type=int)
 
+    terms = avoid_terms()
+    hide = request.args.get("hide") == "1" and bool(terms)   # the switch needs a list to do anything
+
     params = {"q": q, "like": f"%{escape_like(q)}%", "category": category,
               "sub_prefix": escape_like(category + GROUP_SEPARATOR) + "%"}
     with closing(get_db(app.config["DATABASE"])) as conn:
-        total = conn.execute(COUNT_SQL, params).fetchone()[0]
-        pages = max(1, math.ceil(total / PAGE_SIZE))
-        page = min(max(page, 1), pages)
-        rows = conn.execute(
-            PRODUCTS_SQL,
-            {**params, "sort": sort, "limit": PAGE_SIZE, "offset": (page - 1) * PAGE_SIZE},
-        ).fetchall()
+        if hide:
+            # every match is checked first, so the count and the pages follow what is left
+            found = [dict(r) for r in conn.execute(
+                PRODUCTS_SQL, {**params, "sort": sort, "limit": -1, "offset": 0})]
+            checks = {r["id"]: check_avoid_list(terms, split_ingredients_text(r["ingredients_text"])) for r in found}
+            kept = [r for r in found if checks[r["id"]]["status"] != "found"]
+            hidden_count = len(found) - len(kept)
+            total = len(kept)
+            pages = max(1, math.ceil(total / PAGE_SIZE))
+            page = min(max(page, 1), pages)
+            rows = kept[(page - 1) * PAGE_SIZE:page * PAGE_SIZE]
+        else:
+            total = conn.execute(COUNT_SQL, params).fetchone()[0]
+            pages = max(1, math.ceil(total / PAGE_SIZE))
+            page = min(max(page, 1), pages)
+            rows = [dict(r) for r in conn.execute(
+                PRODUCTS_SQL,
+                {**params, "sort": sort, "limit": PAGE_SIZE, "offset": (page - 1) * PAGE_SIZE},
+            )]
+            checks = {r["id"]: check_avoid_list(terms, split_ingredients_text(r["ingredients_text"])) for r in rows} if terms else {}
+            hidden_count = 0
         groups = [r["compare_group"] for r in conn.execute(CATEGORIES_SQL)]
 
     rate = get_usd_inr_rate(app.config["DATABASE"])  # None: no INR column at all
     rows = [
-        {**row, "inr_price": inr_price(row["price"], rate and rate.rate)}
-        for row in map(dict, rows)
+        {**{k: v for k, v in row.items() if k != "ingredients_text"}, "inr_price": inr_price(row["price"], rate and rate.rate)}
+        for row in rows
     ]
 
     def page_url(n):
-        return url_for("products", q=q or None, category=category or None, sort=sort, page=n)
+        return url_for("products", q=q or None, category=category or None, sort=sort, page=n,
+                       hide="1" if hide else None)
 
     return render_template(
         "products.html",
         products=rows,
-        detail_args=list_args(q, category, sort, page),
+        detail_args=list_args(q, category, sort, page, hide),
         total=total,
         q=q,
         category=category,
@@ -150,6 +200,7 @@ def products():
         pages=pages,
         prev_url=page_url(page - 1) if page > 1 else None,
         next_url=page_url(page + 1) if page < pages else None,
+        avoid=avoid_content, avoid_terms=terms, avoid_checks=checks, hide=hide, hidden_count=hidden_count,
     )
 
 
@@ -168,8 +219,11 @@ def product_detail(id):
             request.args.get("category", "").strip(),
             request.args.get("sort"),
             request.args.get("page", type=int),
+            request.args.get("hide") == "1",
         ),
     )
+    terms = avoid_terms()
+    avoid_check = check_avoid_list(terms, [i["name"] for i in product["ingredients"]]) if terms else None
     science_links = [
         {"label": f"Studies on {entry['label']}", "url": url_for("science", q=entry["science_term"])}
         for entry in main_ingredients_content.MAIN_INGREDIENTS
@@ -183,6 +237,7 @@ def product_detail(id):
         price_inr=inr_price(product["price"], rate_value),
         per_ml_inr=inr_per_ml(product["price_per_ml"], rate_value),
         back_url=back_url,
+        avoid=avoid_content, avoid_check=avoid_check,
     )
 
 
@@ -354,6 +409,13 @@ def compare():
     else:
         retry_url, retry_label = url_for("compare"), "Start again"
 
+    terms = avoid_terms()
+    avoid_checks = None
+    if terms and both_shown and result["comparable"]:
+        avoid_checks = {
+            side: check_avoid_list(terms, [i["name"] for i in shown[side]["ingredients"]]) for side in ("a", "b")
+        }
+
     return render_template(
         "compare.html", result=result, shown=shown, both_shown=both_shown, messages=messages,
         groups=groups, group_sections=group_sections([(g["name"], f" ({g['products']})") for g in groups]),
@@ -363,6 +425,7 @@ def compare():
         facts=facts, rate=rate, retry_url=retry_url, retry_label=retry_label,
         shared_label=join_labels(result["shared_main"]) if result["shared_main"] else None,
         top_n=main_ingredients_content.TOP_N,
+        avoid=avoid_content, avoid_checks=avoid_checks,
     )
 
 

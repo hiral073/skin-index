@@ -10,7 +10,7 @@ from database.load_data import (
     AMBIGUOUS, BAD_SIZE, DUPLICATE, EXTRACTED, GROUP_SEPARATOR, IGNORED_COLON,
     IGNORED_VALUE, LEADING, MERGED, MULTIPACK, NO_INGREDIENTS, NO_PRICE, NO_SIZE,
     NOT_SKINCARE, PAREN, PLAIN, SECOND_LEVEL, THIRD_LEVEL, TRAILING, WEIGHT_SIZE,
-    StrengthEvent, StrengthReport, ambiguous_subcategories, clean_products, compare_group,
+    StrengthEvent, StrengthReport, ambiguous_subcategories, canonical_ingredient, clean_products, compare_group,
     decimal_number, load_products, main, parse_ingredients, parse_size_ml, parse_strength,
     pick_examples, split_ingredients, strengths_apply, table_counts, whole_number,
 )
@@ -560,3 +560,13 @@ def test_load_products_replaces_existing_rows(tmp_path):
     assert table_counts(db) == {
         "products": 2, "ingredients": 2, "product_ingredients": 4,
     }
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("Water (Aqua)", "Water"), ("Aqua/Water/Eau", "Water"), ("Eau", "Water"),
+    ("Parfum", "Fragrance"), ("Fragrance (Parfum)", "Fragrance"), ("Fragrance/Parfum", "Fragrance"),
+    ("Purified Water", "Purified Water"), ("Fragrance Mix", "Fragrance Mix"), ("Rose Water", "Rose Water"),
+    ("Perfume", "Perfume"), ("Glycerin", "Glycerin"),
+])
+def test_only_the_two_synonym_rules_fold_names_when_loading(name, expected):
+    assert canonical_ingredient(name) == expected

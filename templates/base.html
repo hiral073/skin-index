@@ -1,3 +1,4 @@
+{%- from "_icons.html" import brand_icon -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,7 +16,7 @@
     <nav class="navbar">
         <div class="nav-inner">
             <a href="{{ url_for('landing') }}" class="nav-brand">
-                <span class="brand-icon">◈</span>
+                {{ brand_icon() }}
                 <span class="brand-name">Skin Index</span>
             </a>
             <div class="nav-links">
@@ -34,7 +35,7 @@
 
     <footer class="footer">
         <div class="footer-inner">
-            <span class="brand-icon">◈</span>
+            {{ brand_icon() }}
             <span class="footer-name">Skin Index</span>
             <p class="footer-copy">Understand what is in your skincare, and who is selling it.</p>
             <p class="footer-heading">Learn more</p>

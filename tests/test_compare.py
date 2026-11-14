@@ -457,7 +457,7 @@ def test_the_page_says_how_ingredient_names_are_compared(app, client):
     db = app.config["DATABASE"]
     a = add(db, "Bravo Serum", ingredients=[("Water",), ("Niacinamide",)])
     b = add(db, "Delta Serum", ingredients=[("Water",), ("Niacinamide",)])
-    note = ("Ingredient names are compared ignoring capital letters, and Water, Aqua and Eau count as the same "
-            "ingredient. No other names are matched or merged.")
+    note = ("Ingredient names are compared ignoring capital letters. Water, Aqua and Eau count as the same "
+            "ingredient, and so do Fragrance and Parfum. No other names are matched or merged.")
     assert note in page(client, f"/compare?a={a}&b={b}")
     assert note not in page(client, "/compare")
