@@ -7,9 +7,15 @@ from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from database.db import COMPARE_DROPDOWN_MAX, get_db, init_db
+from content import avoid_list as avoid_content
+from content import science as science_content
+from content import ingredient_cards as cards_content
+from content import main_ingredients as main_ingredients_content
+from content import science as science_content
+from database.db import get_db, init_db
+from database.ingredient_match import ingredient_key, term_matches
 from live.currency import CurrencyError, fetch_usd_inr
-from live.pubmed import PubmedError, search_pubmed
+from live.pubmed import PubmedError, count_pubmed, search_pubmed, topic_query
 from live.weather import WeatherError, fetch_air_quality, fetch_forecast, search_places
 
 # stale is True when the rate is older than today's and today's fetch failed
@@ -98,8 +104,8 @@ def _load_product(conn, product_id):
     if isinstance(product_id, bool) or not isinstance(product_id, int) or not 0 < product_id < 2**63:
         return None  # not a usable id (SQLite would raise on integers beyond 64 bits)
     product = conn.execute(
-        "SELECT id, name, brand, category, compare_group, size_text, price, price_per_ml"
-        " FROM products WHERE id = ?",
+        "SELECT id, name, brand, category, compare_group, size_text, price, price_per_ml,"
+        " loves_count, rating, reviews FROM products WHERE id = ?",
         (product_id,),
     ).fetchone()
     if product is None:
@@ -119,8 +125,56 @@ def escape_like(text):
 
 
 # ------------------------------------------------------------------ #
-# Compare: groups, dropdown lists and the comparison itself          #
+# Compare: groups, main ingredients, dropdown lists and the comparison #
 # ------------------------------------------------------------------ #
+
+def _compile(patterns):
+    return [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
+
+
+_MAIN_PATTERNS = [
+    (entry["key"], _compile(entry["name_patterns"]), _compile(entry["ingredient_patterns"]))
+    for entry in main_ingredients_content.MAIN_INGREDIENTS
+]
+MAIN_INGREDIENT_LABELS = {entry["key"]: entry["label"] for entry in main_ingredients_content.MAIN_INGREDIENTS}
+
+
+def main_ingredients_of(product_name, ingredient_names):
+    """The main ingredient groups (keys, in the order of the content file) a product belongs to.
+
+    A product belongs to a group when the group's ingredient is in its name or among its first
+    TOP_N listed ingredients (`ingredient_names` in label order). It can belong to several.
+    """
+    top = list(ingredient_names or [])[:main_ingredients_content.TOP_N]
+    name = product_name or ""
+    return [
+        key for key, name_patterns, ingredient_patterns in _MAIN_PATTERNS
+        if any(p.search(name) for p in name_patterns)
+        or any(p.search(i) for p in ingredient_patterns for i in top)
+    ]
+
+
+def _group_products(conn, group):
+    """Every product in a comparison group with its main ingredient groups: [{..., "main"}]."""
+    products = [dict(row) for row in conn.execute(
+        "SELECT id, name, brand, size_text, price FROM products WHERE compare_group = ?"
+        " ORDER BY name COLLATE NOCASE, brand COLLATE NOCASE, id",
+        (group,),
+    )]
+    top_ingredients = {}
+    for row in conn.execute(
+        "SELECT product_id, name FROM ("
+        " SELECT pi.product_id, i.name, ROW_NUMBER() OVER (PARTITION BY pi.product_id ORDER BY pi.position) AS n"
+        " FROM product_ingredients pi JOIN ingredients i ON i.id = pi.ingredient_id"
+        " JOIN products p ON p.id = pi.product_id WHERE p.compare_group = ?"
+        ") WHERE n <= ? ORDER BY product_id, n",
+        (group, main_ingredients_content.TOP_N),
+    ):
+        top_ingredients.setdefault(row["product_id"], []).append(row["name"])
+    for product in products:
+        product["main"] = main_ingredients_of(product["name"], top_ingredients.get(product["id"], []))
+    return products
+
 
 def list_groups(db_path=None):
     """Comparison groups that have at least two products, by name: [{"name", "products"}]."""
@@ -134,75 +188,50 @@ def list_groups(db_path=None):
     return [dict(row) for row in rows]
 
 
-def list_brands_in_group(group, db_path=None):
-    """Brands that have products in a group, by name: [{"brand", "products"}]."""
+def list_group_ingredients(group, db_path=None):
+    """The main ingredient groups with at least one product in a comparison group, in the order of
+    the content file: [{"key", "label", "products"}]. A count under 2 means nothing to compare."""
     init_db(db_path)
     with closing(get_db(db_path)) as conn:
-        rows = conn.execute(
-            "SELECT brand, COUNT(*) AS products FROM products WHERE compare_group = ?"
-            " GROUP BY brand ORDER BY brand COLLATE NOCASE",
-            (group,),
-        ).fetchall()
-    return [dict(row) for row in rows]
+        products = _group_products(conn, group)
+    counts = {key: sum(key in p["main"] for p in products) for key in MAIN_INGREDIENT_LABELS}
+    return [
+        {"key": key, "label": label, "products": counts[key]}
+        for key, label in MAIN_INGREDIENT_LABELS.items() if counts[key]
+    ]
 
 
-def list_products_in_group(group, brand=None, q=None, exclude_id=None, db_path=None):
-    """Products for a dropdown, sorted by name.
+def list_products_in_group(group, ingredient, exclude_id=None, db_path=None):
+    """Products of a comparison group that belong to one main ingredient group, for a dropdown.
 
-    Returns {"products": [{"id", "name", "brand", "size_text", "price"}], "total",
-    "needs_brand", "capped"}. A group with more than COMPARE_DROPDOWN_MAX products lists
-    nothing until a brand is given (needs_brand); no list is longer than that maximum
-    (capped says there were more matches). `exclude_id` leaves one product out.
+    Returns [{"id", "name", "brand", "size_text", "price"}] sorted by name; `ingredient` is a key
+    of the content file (an unknown key lists nothing); `exclude_id` leaves one product out.
     """
     init_db(db_path)
-    q = (q or "").strip()
     with closing(get_db(db_path)) as conn:
-        in_group = conn.execute(
-            "SELECT COUNT(*) FROM products WHERE compare_group = ?", (group,)
-        ).fetchone()[0]
-        if in_group > COMPARE_DROPDOWN_MAX and not brand:
-            return {"products": [], "total": in_group, "needs_brand": True, "capped": False}
-        params = {
-            "group": group, "brand": brand or "", "q": q, "like": f"%{escape_like(q)}%",
-            "exclude": exclude_id, "limit": COMPARE_DROPDOWN_MAX,
-        }
-        rows = conn.execute(
-            "SELECT id, name, brand, size_text, price FROM products"
-            " WHERE compare_group = :group AND (:brand = '' OR brand = :brand)"
-            " AND (:exclude IS NULL OR id != :exclude)"
-            " AND (:q = '' OR name LIKE :like ESCAPE '\\' OR brand LIKE :like ESCAPE '\\')"
-            " ORDER BY name COLLATE NOCASE, brand COLLATE NOCASE, id LIMIT :limit",
-            params,
-        ).fetchall()
-        total = conn.execute(
-            "SELECT COUNT(*) FROM products"
-            " WHERE compare_group = :group AND (:brand = '' OR brand = :brand)"
-            " AND (:exclude IS NULL OR id != :exclude)"
-            " AND (:q = '' OR name LIKE :like ESCAPE '\\' OR brand LIKE :like ESCAPE '\\')",
-            {k: v for k, v in params.items() if k != "limit"},
-        ).fetchone()[0]
-    return {
-        "products": [dict(row) for row in rows], "total": total,
-        "needs_brand": False, "capped": total > len(rows),
-    }
+        products = _group_products(conn, group)
+    return [
+        {k: p[k] for k in ("id", "name", "brand", "size_text", "price")}
+        for p in products if ingredient in p["main"] and p["id"] != exclude_id
+    ]
 
 
 def compare_products(a_id, b_id, db_path=None):
     """Compare two products; plain data only (no formatting, no currency).
 
     Returns {"a", "b", "a_state", "b_state", "status", "comparable", "a_group", "b_group",
-    "price_per_ml", "ingredients"}.
+    "a_main", "b_main", "shared_main", "ingredients"}.
     - a, b: the product as in get_product_detail, or None.
     - a_state, b_state: "not chosen" (id None), "unknown" (no such product) or "found".
+    - a_main, b_main: the main ingredient groups (keys) each found product belongs to (else []);
+      shared_main: the ones both belong to, in the order of the content file.
     - status: "waiting" (a side is not found), "same_product", "no_group" (a product has no
-      comparison group), "different_groups" or "ok". comparable is True only for "ok".
-    - price_per_ml (comparable only): {"a", "b", "cheaper": "a"/"b"/"equal"/None,
-      "percent"}, percent = how much less the cheaper one costs per ml, as a share of
-      the dearer one; cheaper and percent are None when either price per ml is missing.
-    - ingredients (comparable, both with ingredients, else None): {"shared": [{"name",
-      "a_percent", "b_percent"}] in A's label order, "only_a", "only_b" (names), the three
-      counts, "total_count" (distinct across both) and "overlap_percent" = shared / total.
-    Strengths are the brand's stated numbers (or None), never worked out.
+      comparison group), "different_groups", "no_main_ingredient" (a product belongs to no main
+      ingredient group), "different_ingredients" (no main ingredient group in common) or "ok".
+      comparable is True only for "ok": the same comparison group and a main ingredient group in common.
+    - ingredients (comparable, both with ingredients, else None): {"shared", "only_a", "only_b"}
+      as ingredient names in label order (shared in A's order), plus the three counts.
+    No verdict is made: the data has no amounts and no product is called better than another.
     """
     init_db(db_path)
     with closing(get_db(db_path)) as conn:
@@ -214,13 +243,14 @@ def compare_products(a_id, b_id, db_path=None):
         return "found" if loaded[side] is not None else "unknown"
 
     states = {"a": state("a", a_id), "b": state("b", b_id)}
-    products, rows = {}, {}
+    products, rows, main = {}, {}, {}
     for side in ("a", "b"):
         if loaded[side] is None:
-            products[side], rows[side] = None, []
+            products[side], rows[side], main[side] = None, [], []
         else:
             product, ingredient_rows = loaded[side]
             rows[side] = ingredient_rows
+            main[side] = main_ingredients_of(product["name"], [r["name"] for r in ingredient_rows])
             products[side] = {
                 **product,
                 "ingredients": [
@@ -228,10 +258,12 @@ def compare_products(a_id, b_id, db_path=None):
                 ],
             }
     a, b = products["a"], products["b"]
+    shared_main = [key for key in main["a"] if key in main["b"]]
     result = {
         "a": a, "b": b, "a_state": states["a"], "b_state": states["b"],
         "a_group": a and a["compare_group"], "b_group": b and b["compare_group"],
-        "status": None, "comparable": False, "price_per_ml": None, "ingredients": None,
+        "a_main": main["a"], "b_main": main["b"], "shared_main": shared_main,
+        "status": None, "comparable": False, "ingredients": None,
     }
     if a is None or b is None:
         result["status"] = "waiting"
@@ -241,45 +273,134 @@ def compare_products(a_id, b_id, db_path=None):
         result["status"] = "no_group"
     elif a["compare_group"] != b["compare_group"]:
         result["status"] = "different_groups"
+    elif not main["a"] or not main["b"]:
+        result["status"] = "no_main_ingredient"
+    elif not shared_main:
+        result["status"] = "different_ingredients"
     else:
         result["status"] = "ok"
         result["comparable"] = True
-        result["price_per_ml"] = _compare_price_per_ml(a["price_per_ml"], b["price_per_ml"])
         result["ingredients"] = _compare_ingredients(rows["a"], rows["b"])
     return result
 
 
-def _compare_price_per_ml(a_value, b_value):
-    out = {"a": a_value, "b": b_value, "cheaper": None, "percent": None}
-    if a_value is None or b_value is None:
-        return out
-    if a_value == b_value:
-        out["cheaper"], out["percent"] = "equal", 0.0
-        return out
-    cheaper, dearer = (a_value, b_value) if a_value < b_value else (b_value, a_value)
-    out["cheaper"] = "a" if a_value < b_value else "b"
-    out["percent"] = (dearer - cheaper) / dearer * 100
-    return out
-
-
 def _compare_ingredients(a_rows, b_rows):
+    """Shared / only-in-A / only-in-B ingredient names. Two names are the same ingredient when
+    `ingredient_key` says so (same text ignoring capital letters, and the two synonym rules);
+    nothing else is matched. Names are shown as stored."""
     if not a_rows or not b_rows:
         return None
-    a_by_id = {r["ingredient_id"]: r for r in a_rows}
-    b_by_id = {r["ingredient_id"]: r for r in b_rows}
-    shared = [
-        {"name": r["name"], "a_percent": r["stated_percent"],
-         "b_percent": b_by_id[r["ingredient_id"]]["stated_percent"]}
-        for r in a_rows if r["ingredient_id"] in b_by_id
-    ]
-    only_a = [r["name"] for r in a_rows if r["ingredient_id"] not in b_by_id]
-    only_b = [r["name"] for r in b_rows if r["ingredient_id"] not in a_by_id]
-    total = len(shared) + len(only_a) + len(only_b)
+
+    def distinct(rows):
+        seen, names = set(), []
+        for row in rows:
+            key = ingredient_key(row["name"])
+            if key not in seen:
+                seen.add(key)
+                names.append((key, row["name"]))
+        return names
+
+    a_names, b_names = distinct(a_rows), distinct(b_rows)
+    a_keys, b_keys = {k for k, _ in a_names}, {k for k, _ in b_names}
+    shared = [name for key, name in a_names if key in b_keys]
+    only_a = [name for key, name in a_names if key not in b_keys]
+    only_b = [name for key, name in b_names if key not in a_keys]
     return {
         "shared": shared, "only_a": only_a, "only_b": only_b,
         "shared_count": len(shared), "only_a_count": len(only_a), "only_b_count": len(only_b),
-        "total_count": total, "overlap_percent": len(shared) / total * 100,
     }
+
+
+# ------------------------------------------------------------------ #
+# Avoid list                                                          #
+# ------------------------------------------------------------------ #
+
+_TERM_CHARS = re.compile(r"(?:[^\W_]|[ .'/()+-])+")
+_HAS_WORD = re.compile(r"[^\W_]")
+_DOT_BETWEEN_WORDS = re.compile(r"[^\W_]\.[^\W_]")  # "name.com": a link or domain, not an ingredient
+
+
+def clean_avoid_term(text):
+    """One typed word or phrase, trimmed, lower-cased and checked; None when it is not usable.
+
+    2 to 40 characters of letters, digits, spaces and - ' . / ( ) + only, with at least one
+    letter or digit, and no domain-like text (a full stop between two letters or digits).
+    """
+    if not isinstance(text, str):
+        return None
+    term = " ".join(text.split()).lower()
+    if not avoid_content.MIN_TERM_LENGTH <= len(term) <= avoid_content.MAX_TERM_LENGTH:
+        return None
+    if not _TERM_CHARS.fullmatch(term) or not _HAS_WORD.search(term) or _DOT_BETWEEN_WORDS.search(term):
+        return None
+    return term
+
+
+def clean_avoid_terms(raw_terms):
+    """The usable terms of `raw_terms` in order: cleaned, no repeats (water and aqua are the same
+    word, so they count as a repeat), at most `MAX_TERMS`. Anything else is dropped."""
+    terms, seen = [], set()
+    for raw in list(raw_terms or [])[:100] if isinstance(raw_terms, (list, tuple)) else []:
+        term = clean_avoid_term(raw)
+        key = term and ingredient_key(term)
+        if term and key not in seen:
+            seen.add(key)
+            terms.append(term)
+        if len(terms) == avoid_content.MAX_TERMS:
+            break
+    return terms
+
+
+def check_avoid_list(avoid_terms, ingredient_names):
+    """Which of the typed words are found in a product's ingredient names. Plain data, nothing stored.
+
+    `avoid_terms` is the visitor's list (cleaned here again, so any input is safe) and
+    `ingredient_names` the product's ingredients as the brand wrote them, in label order.
+    Returns {"status", "terms", "matches", "lists", "matched_ingredients", "ingredients_checked"}:
+    - status: "no_list" (no usable term), "no_ingredients" (the product lists none, so it cannot
+      be checked and is never treated as clear), "found" or "not_found" (nothing found in the
+      listed ingredients, which says nothing about anything not listed).
+    - matches: [{"term", "ingredients"}] for each term that was found, with the ingredient names.
+    - lists: the terms that were found; matched_ingredients: those names once each, in label order.
+    A term matches whole words only, ignoring capital letters; the only synonyms are
+    water/aqua/eau and fragrance/parfum (`database/ingredient_match.py`).
+    """
+    terms = clean_avoid_terms(avoid_terms)
+    names = [n for n in (ingredient_names or []) if isinstance(n, str) and n.strip()]
+    result = {
+        "status": "no_list", "terms": terms, "matches": [], "lists": [],
+        "matched_ingredients": [], "ingredients_checked": len(names),
+    }
+    if not terms:
+        return result
+    if not names:
+        result["status"] = "no_ingredients"
+        return result
+    for term in terms:
+        found = list(dict.fromkeys(name for name in names if term_matches(term, name)))
+        if found:
+            result["matches"].append({"term": term, "ingredients": found})
+    result["lists"] = [m["term"] for m in result["matches"]]
+    result["matched_ingredients"] = [
+        name for name in dict.fromkeys(names) if any(name in m["ingredients"] for m in result["matches"])
+    ]
+    result["status"] = "found" if result["matches"] else "not_found"
+    return result
+
+
+def split_ingredients_text(text):
+    """A product's `ingredients_text` (names joined by ", ") as a list of names."""
+    return [name for name in (text or "").split(", ") if name.strip()]
+
+
+def check_product_avoid_list(avoid_terms, product_id, db_path=None):
+    """`check_avoid_list` for one product: {"product": {"id", "name", "brand"}, ...the check}, or
+    None for an unknown id. The list is used for this one call only and is not stored."""
+    product = get_product_detail(product_id, db_path)
+    if product is None:
+        return None
+    check = check_avoid_list(avoid_terms, [i["name"] for i in product["ingredients"]])
+    return {"product": {k: product[k] for k in ("id", "name", "brand")}, **check}
 
 
 # ------------------------------------------------------------------ #
@@ -732,7 +853,7 @@ def get_today_conditions(city=None, latitude=None, longitude=None, label=None):
 
 
 # ------------------------------------------------------------------ #
-# Research: published papers from PubMed                              #
+# Ingredient Science: published papers from PubMed                    #
 # ------------------------------------------------------------------ #
 
 RESEARCH_CONFIG = {
@@ -740,6 +861,8 @@ RESEARCH_CONFIG = {
     "prune_days": 30,        # saved searches older than this are deleted
     "max_rows": 1000,        # at most this many saved searches are kept (oldest go first)
     "max_term_length": 60,
+    "max_count_rows": 5000,  # at most this many saved paper counts are kept (oldest go first)
+    "max_count_failures": 2,  # the At a glance box stops after this many failed counts in a row
 }
 
 
@@ -831,6 +954,161 @@ def search_research(term, reviews_only=False, db_path=None, now=None):
                 result.update(papers=papers, source="live", fetched_at=now.isoformat(timespec="seconds"))
     result["status"] = "ok" if result["papers"] else "empty"
     return result
+
+
+def _saved_count(conn, query, now):
+    """(count, fetched_at) of a saved count under 24 hours old, else None."""
+    row = conn.execute(
+        "SELECT paper_count, fetched_at FROM pubmed_counts WHERE query = ?", (query,)
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        fetched = datetime.fromisoformat(row["fetched_at"])
+    except (ValueError, TypeError):
+        return None
+    if fetched.tzinfo is None or now - fetched >= timedelta(hours=RESEARCH_CONFIG["cache_hours"]):
+        return None
+    return row["paper_count"], fetched
+
+
+def _save_count(conn, query, count, now):
+    with conn:
+        conn.execute(
+            "INSERT INTO pubmed_counts (query, paper_count, fetched_at) VALUES (?, ?, ?)"
+            " ON CONFLICT (query) DO UPDATE SET paper_count = excluded.paper_count,"
+            " fetched_at = excluded.fetched_at",
+            (query, count, now.isoformat(timespec="seconds")),
+        )
+        cutoff = (now - timedelta(days=RESEARCH_CONFIG["prune_days"])).isoformat(timespec="seconds")
+        conn.execute("DELETE FROM pubmed_counts WHERE fetched_at < ?", (cutoff,))
+        conn.execute(
+            "DELETE FROM pubmed_counts WHERE rowid IN (SELECT rowid FROM pubmed_counts"
+            " ORDER BY fetched_at DESC LIMIT -1 OFFSET ?)",
+            (RESEARCH_CONFIG["max_count_rows"],),
+        )
+
+
+def get_ingredient_card(term):
+    """The "At a glance" card for an ingredient, or None if it has none; plain data only.
+
+    Two short lines, each with a named source and link, from content/ingredient_cards.py:
+    {"key", "what", "discussed", "checked"}. what is {"text", "source_name", "source_url"} or None;
+    discussed is {"topics", "context", "source_name", "source_url"} or None. A line the content file
+    leaves out comes back as None. No call is made: the card is fixed text, not a PubMed result.
+    """
+    cleaned = clean_search_text(term)
+    if cleaned is None:
+        return None
+    for card in cards_content.CARDS:
+        if cleaned not in card["names"]:
+            continue
+        what, discussed = card.get("what"), card.get("discussed")
+        if not what and not discussed:
+            return None
+        return {
+            "key": card["key"], "checked": card["checked"],
+            "what": what and {"text": what["text"], "source_name": what["source"]["name"],
+                              "source_url": what["source"]["url"]},
+            "discussed": discussed and {"topics": list(discussed["topics"]), "context": discussed.get("context"),
+                                        "source_name": discussed["source"]["name"],
+                                        "source_url": discussed["source"]["url"]},
+        }
+    return None
+
+
+def get_ingredient_glance(term, db_path=None, now=None):
+    """Topic counts for the "At a glance" box; plain data only.
+
+    For each topic in the content file, how many papers PubMed finds for "<term> AND <topic>". A
+    count says how often a topic appears in published papers together with the ingredient; it does
+    not say that an ingredient works or suits anyone. Nothing else is counted.
+
+    Returns {"status", "term", "topics", "incomplete", "fetched_at"}:
+    - status: "ok" (at least one topic has papers), "none" (no papers for the ingredient, in which
+      case no topic is searched, or no topic has a paper), "invalid" (unusable text) or "unavailable"
+      (PubMed could not be reached, only an old saved list of papers exists, or no count worked).
+    - topics: [{"topic", "count"}] with at least one paper, most papers first (ties in the order of
+      the content file). A topic whose count failed is left out; incomplete is True when any count
+      was left out. After max_count_failures failed counts in a row the rest are not tried.
+    - fetched_at: the UTC time (ISO text) of the oldest count used.
+    Every count is saved and reused for 24 hours; a failed count is never saved.
+    """
+    cleaned = clean_search_text(term)
+    result = {"status": None, "term": cleaned, "topics": [], "incomplete": False, "fetched_at": None}
+    if cleaned is None:
+        result["status"] = "invalid"
+        return result
+    found = search_research(cleaned, False, db_path, now)
+    if found["status"] == "empty":
+        result["status"] = "none"              # no papers: no topic is searched
+        return result
+    if found["status"] != "ok" or found["source"] == "stale_cache":
+        result["status"] = "unavailable"       # PubMed is down: no counts are tried
+        return result
+
+    now = now or datetime.now(timezone.utc)
+    fetched, failures = [], 0
+    with closing(get_db(db_path)) as conn:
+        def count(query):
+            """The count for a query (saved or fresh), or None when it failed."""
+            saved = _saved_count(conn, query, now)
+            if saved:
+                fetched.append(saved[1])
+                return saved[0]
+            try:
+                value = count_pubmed(query)
+            except PubmedError:
+                return None
+            _save_count(conn, query, value, now)
+            fetched.append(now)
+            return value
+
+        for topic in science_content.GLANCE_TOPICS:
+            if failures >= RESEARCH_CONFIG["max_count_failures"]:
+                result["incomplete"] = True
+                continue
+            value = count(topic_query(cleaned, topic))
+            if value is None:
+                failures += 1
+                result["incomplete"] = True
+            else:
+                failures = 0
+                if value > 0:
+                    result["topics"].append({"topic": topic, "count": value})
+    order = {topic: i for i, topic in enumerate(science_content.GLANCE_TOPICS)}
+    result["topics"].sort(key=lambda t: (-t["count"], order[t["topic"]]))
+    if fetched:
+        result["fetched_at"] = min(fetched).isoformat(timespec="seconds")
+    if result["topics"]:
+        result["status"] = "ok"
+    else:
+        result["status"] = "unavailable" if result["incomplete"] else "none"
+    return result
+
+
+def paper_label(types):
+    """The plain label for a paper from its PubMed publication types (a list of names).
+
+    The first label in science_content.PAPER_LABELS that one of the types fits; a paper that fits
+    none is a "Research paper". Only the kind of paper is named: nothing about what it found.
+    """
+    types = set(types or [])
+    for label, names in science_content.PAPER_LABELS:
+        if types & set(names):
+            return label
+    return science_content.OTHER_LABEL
+
+
+def group_papers(papers):
+    """Papers grouped under their plain labels, summaries first, empty groups left out.
+
+    Returns [{"label", "papers"}]; inside a group the papers keep PubMed's relevance order.
+    """
+    groups = {label: [] for label in science_content.GROUP_ORDER}
+    for paper in papers:
+        groups[paper_label(paper.get("types"))].append(paper)
+    return [{"label": label, "papers": groups[label]} for label in science_content.GROUP_ORDER if groups[label]]
 
 
 def inr_price(price_usd, rate):

@@ -10,7 +10,7 @@ from database.load_data import (
     AMBIGUOUS, BAD_SIZE, DUPLICATE, EXTRACTED, GROUP_SEPARATOR, IGNORED_COLON,
     IGNORED_VALUE, LEADING, MERGED, MULTIPACK, NO_INGREDIENTS, NO_PRICE, NO_SIZE,
     NOT_SKINCARE, PAREN, PLAIN, SECOND_LEVEL, THIRD_LEVEL, TRAILING, WEIGHT_SIZE,
-    StrengthEvent, StrengthReport, ambiguous_subcategories, clean_products, compare_group,
+    StrengthEvent, StrengthReport, ambiguous_subcategories, canonical_ingredient, clean_products, compare_group,
     decimal_number, load_products, main, parse_ingredients, parse_size_ml, parse_strength,
     pick_examples, split_ingredients, strengths_apply, table_counts, whole_number,
 )
@@ -500,8 +500,11 @@ def test_clean_products_sets_groups_levels_and_renames_clashes():
         "Cream No Level": ("Moisturizers", SECOND_LEVEL),   # same name, so the same group
         "Tiny Serum": (None, None),
         "Gift Kit": (None, None),
-        "Device": (f"High Tech Tools{AA}Anti-Aging", THIRD_LEVEL),
-        "Concern": (f"Shop by Concern{AA}Anti-Aging", THIRD_LEVEL),
+        "Device": (None, None),       # hidden by the group cleanup (not a product type)
+        "Concern": (None, None),
+    }
+    assert {p["name"]: p["raw_group"] for p in products if p["name"] in ("Device", "Concern")} == {
+        "Device": f"High Tech Tools{AA}Anti-Aging", "Concern": f"Shop by Concern{AA}Anti-Aging",
     }
 
 
@@ -536,13 +539,15 @@ def test_main_prints_the_comparison_group_report(tmp_path, capsys):
     main(str(csv), db)
     out = capsys.readouterr().out
     assert "Comparison groups" in out
-    assert re.search(r"products with a group\s+4\n", out)
+    assert re.search(r"products with a group\s+2\n", out)
     assert re.search(r"fell back to the second level\s+1\n", out)
     assert "Lip Balms & Treatments: 1" in out
-    assert re.search(r"products with no group\s+1\n", out)
+    assert re.search(r"products with no group\s+3\n", out)                # Tiny, and the two cleaned-up ones
     assert "Mini Size: 1" in out and "Value & Gift Sets: 0" in out      # both always listed
-    assert f"High Tech Tools{AA}Anti-Aging (1)" in out and f"Shop by Concern{AA}Anti-Aging (1)" in out
+    assert "High Tech Tools: 1" in out and "Shop by Concern: 1" in out
     assert "groups with one product (hidden from the picker)" in out
+    assert f"High Tech Tools{AA}Anti-Aging (1) -> no group" in out
+    assert f"Shop by Concern{AA}Anti-Aging (1) -> no group" in out
 
 
 def test_load_products_replaces_existing_rows(tmp_path):
@@ -555,3 +560,13 @@ def test_load_products_replaces_existing_rows(tmp_path):
     assert table_counts(db) == {
         "products": 2, "ingredients": 2, "product_ingredients": 4,
     }
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("Water (Aqua)", "Water"), ("Aqua/Water/Eau", "Water"), ("Eau", "Water"),
+    ("Parfum", "Fragrance"), ("Fragrance (Parfum)", "Fragrance"), ("Fragrance/Parfum", "Fragrance"),
+    ("Purified Water", "Purified Water"), ("Fragrance Mix", "Fragrance Mix"), ("Rose Water", "Rose Water"),
+    ("Perfume", "Perfume"), ("Glycerin", "Glycerin"),
+])
+def test_only_the_two_synonym_rules_fold_names_when_loading(name, expected):
+    assert canonical_ingredient(name) == expected

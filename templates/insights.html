@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_group_options.html" import group_options %}
 
 {% block title %}Insights · Skin Index{% endblock %}
 
@@ -42,9 +43,7 @@
         <label class="picker-label" for="group">Product type</label>
         <select class="form-input" id="group" name="group" data-autosubmit>
             <option value="">All product types (overall view)</option>
-            {% for g in data.selector_groups %}
-            <option value="{{ g.name }}" {% if g.name == group %}selected{% endif %}>{{ g.name }} ({{ g.products }})</option>
-            {% endfor %}
+            {{ group_options(group_sections, group) }}
         </select>
         <button class="btn-primary" type="submit">Show</button>
         {% if group %}<a class="btn-ghost" href="{{ url_for('insights') }}">Back to the overall view</a>{% endif %}

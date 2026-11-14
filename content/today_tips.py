@@ -95,11 +95,11 @@ HOT_HUMID_TIPS = [
      "source": AAD},
 ]
 
-# group -> tips; the links go to the Products page filtered by an existing category
+# group -> tips; the links go to the Products page filtered by a compare group (the "category" filter)
 TIP_GROUPS = {"cool_dry": COOL_DRY_TIPS, "hot_humid": HOT_HUMID_TIPS}
 TIP_LINKS = {
     "cool_dry": [{"label": "Browse moisturizers with 'cream' in the name",
                   "category": "Moisturizers", "q": "cream"}],
-    "hot_humid": [{"label": "Browse cleansers", "category": "Cleansers"},
+    "hot_humid": [{"label": "Browse cleansers", "category": "Face Wash & Cleansers"},
                   {"label": "Browse moisturizers", "category": "Moisturizers"}],
 }

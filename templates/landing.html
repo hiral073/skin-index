@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import search_icon, compare_icon, target_icon %}
 
 {% block title %}Skin Index — Understand What Is in Your Skincare{% endblock %}
 
@@ -63,17 +64,17 @@
 <section class="features">
     <div class="features-inner">
         <div class="feature-card">
-            <div class="feature-icon">⌕</div>
+            <div class="feature-icon">{{ search_icon() }}</div>
             <h3 class="feature-title">Search any product</h3>
             <p class="feature-body">Find a product by name or ingredient and see its full ingredient list, price and size in one page.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-icon">⇄</div>
+            <div class="feature-icon">{{ compare_icon() }}</div>
             <h3 class="feature-title">Compare side by side</h3>
             <p class="feature-body">Line up two products on price per ml and see which ingredients they share and which are unique.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-icon">◎</div>
+            <div class="feature-icon">{{ target_icon() }}</div>
             <h3 class="feature-title">See the bigger picture</h3>
             <p class="feature-body">Check how brands compare on price and which ingredients show up most often across products.</p>
         </div>

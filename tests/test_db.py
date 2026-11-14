@@ -123,6 +123,23 @@ def test_a_saved_search_is_unique_per_term_and_reviews_only(db_path):
             conn.execute(insert)
 
 
+def test_init_db_creates_the_pubmed_counts_table_idempotently(db_path):
+    init_db(db_path)
+    init_db(db_path)
+    columns = [r["name"] for r in query(db_path, "PRAGMA table_info(pubmed_counts)")]
+    assert columns == ["query", "paper_count", "fetched_at"]
+
+
+def test_a_saved_count_is_unique_per_query_and_never_negative(db_path):
+    init_db(db_path)
+    with closing(get_db(db_path)) as conn:
+        conn.execute("INSERT INTO pubmed_counts VALUES ('retinol AND skin', 5, '2026-11-12T10:00:00+00:00')")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO pubmed_counts VALUES ('retinol AND skin', 6, '2026-11-12T10:00:00+00:00')")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO pubmed_counts VALUES ('other', -1, '2026-11-12T10:00:00+00:00')")
+
+
 def test_seed_db_gives_each_product_a_compare_group(db_path):
     init_db(db_path)
     seed_db(db_path)

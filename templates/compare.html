@@ -1,103 +1,76 @@
 {% extends "base.html" %}
+{% from "_group_options.html" import group_options %}
+{% from "_avoid.html" import result as avoid_result, based_on %}
 
 {% block title %}Compare · Skin Index{% endblock %}
 
 {% macro na() %}<span class="not-available">Not available</span>{% endmacro %}
 
-{% macro picker_form(p) %}
-<form class="picker" method="get" action="{{ url_for('compare') }}">
-    {% if p.other_id %}<input type="hidden" name="{{ 'b' if p.side == 'a' else 'a' }}" value="{{ p.other_id }}">{% endif %}
-
-    {% if p.constrained %}
-    <p class="picker-within">Comparing within: <strong>{{ p.group }}</strong></p>
-    {% else %}
-    <label class="picker-label" for="{{ p.side }}_group">Category</label>
-    <select class="form-input" id="{{ p.side }}_group" name="{{ p.side }}_group"
-            data-autosubmit data-resets="{{ p.side }}_brand {{ p.side }}">
-        <option value="">Choose a category</option>
-        {% for g in p.groups %}
-        <option value="{{ g.name }}" {% if g.name == p.group %}selected{% endif %}>{{ g.name }} ({{ g.products }})</option>
-        {% endfor %}
-    </select>
-    {% endif %}
-
-    {% if p.group %}
-    <label class="picker-label" for="{{ p.side }}_brand">Brand (optional)</label>
-    <select class="form-input" id="{{ p.side }}_brand" name="{{ p.side }}_brand"
-            data-autosubmit data-resets="{{ p.side }}">
-        <option value="">All brands</option>
-        {% for b in p.brands %}
-        <option value="{{ b.brand }}" {% if b.brand == p.brand %}selected{% endif %}>{{ b.brand }} ({{ b.products }})</option>
-        {% endfor %}
-    </select>
-
-    <label class="picker-label" for="{{ p.side }}_q">Search within this category (optional)</label>
-    <input class="form-input" type="search" id="{{ p.side }}_q" name="{{ p.side }}_q" value="{{ p.q }}"
-           placeholder="Part of a name or brand">
-
-    {% if p.needs_brand %}
-    <p class="picker-hint">This category has {{ p.total }} products. Choose a brand first, then pick a product.</p>
-    {% elif p.options %}
-    <label class="picker-label" for="{{ p.side }}">Product</label>
-    <select class="form-input" id="{{ p.side }}" name="{{ p.side }}" data-autosubmit>
-        <option value="">Choose a product</option>
-        {% for o in p.options %}
-        <option value="{{ o.id }}">{{ o.label }}</option>
-        {% endfor %}
-    </select>
-    {% if p.capped %}<p class="picker-hint">Showing the first {{ p.options | length }} of {{ p.total }} matches. Choose a brand or search to narrow the list.</p>{% endif %}
-    {% else %}
-    <p class="picker-hint">No other products match here.</p>
-    {% endif %}
-    {% endif %}
-
-    <button class="btn-primary" type="submit">Show</button>
-</form>
+{% macro product_select(side, label, items, selected) %}
+<label class="picker-label" for="{{ side }}">{{ label }}</label>
+<select class="form-input" id="{{ side }}" name="{{ side }}" data-autosubmit>
+    <option value="">Choose a product</option>
+    {% for o in items %}
+    <option value="{{ o.id }}" {% if o.id == selected %}selected{% endif %}>{{ o.label }}</option>
+    {% endfor %}
+</select>
 {% endmacro %}
 
 {% macro rate_note(rate) %}
 {% if rate %}
 <p class="rate-note">Converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}). Approximate, not Indian retail prices.{% if rate.stale %} (older rate){% endif %}</p>
+{% else %}
+<p class="rate-note">Rupee prices are not available right now, so US dollar prices are shown.</p>
 {% endif %}
 {% endmacro %}
+
+{% macro name_list(names) %}{% if names %}{{ names | join(', ') }}{% else %}<span class="picker-hint">None.</span>{% endif %}{% endmacro %}
 
 {% block content %}
 <section class="compare-page">
     <h1 class="page-title">Compare</h1>
-    <p class="compare-intro">Choose two products from the same category to compare price per ml and ingredients.</p>
+    <p class="compare-intro">Choose a category and a main ingredient, then two products from it. A product is in a main ingredient group when that ingredient is in its name or among its first {{ top_n }} listed ingredients.</p>
 
     {% for message in messages %}
     <p class="notice">{{ message }}</p>
     {% endfor %}
 
-    <div class="compare-slots">
-        {% for s in sides %}
-        <div class="slot">
-            <h2 class="slot-title">{{ s.label }}</h2>
-            {% if s.product %}
-            <div class="chosen">
-                <a class="product-link" href="{{ url_for('product_detail', id=s.product.id) }}">{{ s.product.name }}</a>
-                <p class="chosen-sub">{{ s.product.brand }} · {{ s.product.compare_group or 'No comparison group' }}</p>
-                <a class="change-link" href="{{ s.change_url }}">Change</a>
-            </div>
-            {% elif s.picker %}
-            {{ picker_form(s.picker) }}
-            {% elif s.blocked %}
-            <p class="picker-hint">There is no category to pick from.</p>
-            <a class="change-link" href="{{ url_for('compare') }}">Start again</a>
-            {% else %}
-            <p class="picker-hint">Choose product A first. Product B will then be limited to the same category.</p>
+    <div class="slot">
+        <form class="picker" method="get" action="{{ url_for('compare') }}">
+            <label class="picker-label" for="group">1. Category</label>
+            <select class="form-input" id="group" name="group" data-autosubmit data-resets="ingredient a b">
+                <option value="">Choose a category</option>
+                {{ group_options(group_sections, group) }}
+                {% if group and group not in groups | map(attribute='name') | list %}
+                <option value="{{ group }}" selected>{{ group }} (1)</option>
+                {% endif %}
+            </select>
+
+            {% if group %}
+            <label class="picker-label" for="ingredient">2. Main ingredient</label>
+            <select class="form-input" id="ingredient" name="ingredient" data-autosubmit data-resets="a b">
+                <option value="">Choose a main ingredient</option>
+                {% for i in ingredients %}
+                <option value="{{ i.key }}" {% if i.key == ingredient %}selected{% endif %} {% if i.products < 2 %}disabled{% endif %}>{{ i.label }} ({{ i.products }} product{{ '' if i.products == 1 else 's' }}{% if i.products < 2 %}, too few to compare{% endif %})</option>
+                {% endfor %}
+            </select>
             {% endif %}
-        </div>
-        {% endfor %}
+
+            {% if group and ingredient and options.a %}
+            {{ product_select('a', '3. Product A', options.a, selected.a) }}
+            {{ product_select('b', '4. Product B (same category and main ingredient as A)', options.b, selected.b) }}
+            {% endif %}
+
+            <button class="btn-primary" type="submit">Show</button>
+        </form>
     </div>
 
     {% if both_shown %}
-    {% set a = result.a %}
-    {% set b = result.b %}
-    {% set sa = sides[0] %}
-    {% set sb = sides[1] %}
-    {% set pm = result.price_per_ml %}
+    {% set a = shown.a %}
+    {% set b = shown.b %}
+    {% set fa = facts.a %}
+    {% set fb = facts.b %}
+    {% set ing = result.ingredients %}
 
     <div class="table-wrap compare-table-wrap">
         <table class="product-table compare-table">
@@ -109,24 +82,54 @@
                     <td><a class="product-link" href="{{ url_for('product_detail', id=a.id) }}">{{ a.name }}</a></td>
                     <td><a class="product-link" href="{{ url_for('product_detail', id=b.id) }}">{{ b.name }}</a></td></tr>
                 <tr><th scope="row">Brand</th><td>{{ a.brand }}</td><td>{{ b.brand }}</td></tr>
-                <tr><th scope="row">Group</th><td>{{ a.compare_group or na() }}</td><td>{{ b.compare_group or na() }}</td></tr>
+                <tr><th scope="row">Category</th><td>{{ a.compare_group or na() }}</td><td>{{ b.compare_group or na() }}</td></tr>
+                {% if result.comparable %}
+                <tr><th scope="row">Main ingredient</th><td colspan="2">{{ shared_label }}</td></tr>
+                {% endif %}
                 <tr><th scope="row">Size</th><td>{{ a.size_text or na() }}</td><td>{{ b.size_text or na() }}</td></tr>
+                {% if rate %}
+                <tr><th scope="row">≈ Price (₹)</th>
+                    <td>{% if fa.price_inr is not none %}₹{{ '{:,}'.format(fa.price_inr) }}{% else %}{{ na() }}{% endif %}</td>
+                    <td>{% if fb.price_inr is not none %}₹{{ '{:,}'.format(fb.price_inr) }}{% else %}{{ na() }}{% endif %}</td></tr>
+                {% else %}
                 <tr><th scope="row">Price (USD)</th>
                     <td>{% if a.price is not none %}${{ '%.2f' | format(a.price) }}{% else %}{{ na() }}{% endif %}</td>
                     <td>{% if b.price is not none %}${{ '%.2f' | format(b.price) }}{% else %}{{ na() }}{% endif %}</td></tr>
-                {% if rate %}
-                <tr><th scope="row">≈ Price (₹)</th>
-                    <td>{% if sa.price_inr is not none %}₹{{ '{:,}'.format(sa.price_inr) }}{% else %}{{ na() }}{% endif %}</td>
-                    <td>{% if sb.price_inr is not none %}₹{{ '{:,}'.format(sb.price_inr) }}{% else %}{{ na() }}{% endif %}</td></tr>
                 {% endif %}
                 {% if result.comparable %}
+                {% if rate %}
+                <tr><th scope="row">≈ Price per ml (₹)</th>
+                    <td>{% if fa.per_ml_inr is not none %}₹{{ '%.2f' | format(fa.per_ml_inr) }}{% else %}{{ na() }}{% endif %}</td>
+                    <td>{% if fb.per_ml_inr is not none %}₹{{ '%.2f' | format(fb.per_ml_inr) }}{% else %}{{ na() }}{% endif %}</td></tr>
+                {% else %}
                 <tr><th scope="row">Price per ml (USD)</th>
                     <td>{% if a.price_per_ml is not none %}${{ '%.3f' | format(a.price_per_ml) }}{% else %}{{ na() }}{% endif %}</td>
                     <td>{% if b.price_per_ml is not none %}${{ '%.3f' | format(b.price_per_ml) }}{% else %}{{ na() }}{% endif %}</td></tr>
-                {% if rate %}
-                <tr><th scope="row">≈ Price per ml (₹)</th>
-                    <td>{% if sa.per_ml_inr is not none %}₹{{ '%.2f' | format(sa.per_ml_inr) }}{% else %}{{ na() }}{% endif %}</td>
-                    <td>{% if sb.per_ml_inr is not none %}₹{{ '%.2f' | format(sb.per_ml_inr) }}{% else %}{{ na() }}{% endif %}</td></tr>
+                {% endif %}
+                <tr><th scope="row">Likes</th>
+                    <td>{% if a.loves_count is not none %}{{ '{:,}'.format(a.loves_count) }}{% else %}{{ na() }}{% endif %}</td>
+                    <td>{% if b.loves_count is not none %}{{ '{:,}'.format(b.loves_count) }}{% else %}{{ na() }}{% endif %}</td></tr>
+                <tr><th scope="row">Rating</th>
+                    <td>{% if a.rating is not none %}{{ '%.2f' | format(a.rating) }}{% else %}{{ na() }}{% endif %}</td>
+                    <td>{% if b.rating is not none %}{{ '%.2f' | format(b.rating) }}{% else %}{{ na() }}{% endif %}</td></tr>
+                <tr><th scope="row">Reviews</th>
+                    <td>{% if a.reviews is not none %}{{ '{:,}'.format(a.reviews) }}{% else %}{{ na() }}{% endif %}</td>
+                    <td>{% if b.reviews is not none %}{{ '{:,}'.format(b.reviews) }}{% else %}{{ na() }}{% endif %}</td></tr>
+                {% if avoid_checks %}
+                <tr><th scope="row">{{ avoid.COMPARE_ROW }}</th>
+                    <td>{{ avoid_result(avoid_checks.a, avoid) }}</td>
+                    <td>{{ avoid_result(avoid_checks.b, avoid) }}</td></tr>
+                {% endif %}
+                {% if ing %}
+                <tr><th scope="row">Ingredients both have ({{ ing.shared_count }})</th>
+                    <td colspan="2" class="ingredient-text">{{ name_list(ing.shared) }}</td></tr>
+                <tr><th scope="row">Ingredients only in A ({{ ing.only_a_count }})</th>
+                    <td colspan="2" class="ingredient-text">{{ name_list(ing.only_a) }}</td></tr>
+                <tr><th scope="row">Ingredients only in B ({{ ing.only_b_count }})</th>
+                    <td colspan="2" class="ingredient-text">{{ name_list(ing.only_b) }}</td></tr>
+                {% else %}
+                <tr><th scope="row">Ingredients</th>
+                    <td colspan="2">{{ na() }} <span class="picker-hint">One or both products list no ingredients.</span></td></tr>
                 {% endif %}
                 {% endif %}
             </tbody>
@@ -135,54 +138,16 @@
     {{ rate_note(rate) }}
 
     {% if result.comparable %}
-    <h2 class="section-title">Price per ml</h2>
-    {% if pm.cheaper == 'equal' %}
-    <p class="verdict">Both products cost the same per ml.</p>
-    {% elif pm.cheaper %}
-    {% set cheap = a if pm.cheaper == 'a' else b %}
-    {% set dear = b if pm.cheaper == 'a' else a %}
-    <p class="verdict"><strong>{{ cheap.name }}</strong> is cheaper per ml: it costs {{ '%.1f' | format(pm.percent) }}% less per ml than {{ dear.name }}.</p>
-    {% else %}
-    <p class="verdict">Price per ml is not available for one or both products, so there is no price verdict.</p>
+    <p class="ingredients-note">Likes, ratings and reviews come from one retailer's site and are as of March 2023.</p>
+    <p class="ingredients-note">Ingredient order is a rough guide. Amounts are not in our data.</p>
+    <p class="ingredients-note">Ingredient names are compared ignoring capital letters. Water, Aqua and Eau count as the same ingredient, and so do Fragrance and Parfum. No other names are matched or merged.</p>
+    <p class="ingredients-note">Shared ingredients show what the two products have in common. They do not mean the formulas behave the same.</p>
+    {% if avoid_checks %}
+    {{ based_on(avoid) }}
+    <p class="avoid-note"><a href="{{ url_for('products') }}#avoid-filter">{{ avoid.EDIT_LINK }}</a></p>
     {% endif %}
-
-    <h2 class="section-title">Ingredients</h2>
-    {% set ing = result.ingredients %}
-    {% if ing %}
-    <p class="overlap">
-        <strong>{{ ing.shared_count }}</strong> shared ·
-        <strong>{{ ing.only_a_count }}</strong> only in A ·
-        <strong>{{ ing.only_b_count }}</strong> only in B ·
-        overlap <strong>{{ '%.1f' | format(ing.overlap_percent) }}%</strong>
-        ({{ ing.shared_count }} of {{ ing.total_count }} distinct ingredients)
-    </p>
-    <div class="ingredient-compare">
-        <div>
-            <h3>Shared ({{ ing.shared_count }})</h3>
-            {% if ing.shared %}
-            <ul>
-                {% for i in ing.shared %}
-                <li>{{ i.name }}{% if i.a_percent is not none and i.b_percent is not none %} <span class="stated-percent">A: {{ i.a_percent | percent }}% · B: {{ i.b_percent | percent }}% (stated by brands)</span>{% endif %}</li>
-                {% endfor %}
-            </ul>
-            {% else %}<p class="picker-hint">None.</p>{% endif %}
-        </div>
-        <div>
-            <h3>Only in A ({{ ing.only_a_count }})</h3>
-            {% if ing.only_a %}<ul>{% for n in ing.only_a %}<li>{{ n }}</li>{% endfor %}</ul>{% else %}<p class="picker-hint">None.</p>{% endif %}
-        </div>
-        <div>
-            <h3>Only in B ({{ ing.only_b_count }})</h3>
-            {% if ing.only_b %}<ul>{% for n in ing.only_b %}<li>{{ n }}</li>{% endfor %}</ul>{% else %}<p class="picker-hint">None.</p>{% endif %}
-        </div>
-    </div>
-    <p class="ingredients-note">Shared ingredients show what the two products have in common. They do not mean the formulas behave the same, because concentrations are mostly not published.</p>
     {% else %}
-    <p>{{ na() }} <span class="picker-hint">One or both products list no ingredients.</span></p>
-    {% endif %}
-
-    {% else %}
-    <p class="notice-action"><a class="btn-primary" href="{{ retry_url }}">{% if result.status == 'different_groups' %}Choose a product from {{ a.compare_group }}{% else %}Start again{% endif %}</a></p>
+    <p class="notice-action"><a class="btn-primary" href="{{ retry_url }}">{{ retry_label }}</a></p>
     {% endif %}
     {% endif %}
 </section>

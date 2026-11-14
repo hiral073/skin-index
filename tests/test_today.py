@@ -426,9 +426,9 @@ def test_no_who_steps_below_uv_3(client, weather_api, peak):
 
 def test_the_sunscreens_link_leads_to_the_existing_products_page_filtered_to_sunscreen(app, client, weather_api):
     with closing(get_db(app.config["DATABASE"])) as conn, conn:
-        for name, category in (("Day Shield", "Sunscreen"), ("Night Serum", "Treatments")):
-            conn.execute("INSERT INTO products (name, brand, category, price, size_text, price_per_ml) VALUES (?, 'B', ?, 10, '50 mL', 0.2)",
-                         (name, category))
+        for name, category, group in (("Day Shield", "Sunscreen", "Sunscreen"), ("Night Serum", "Treatments", "Face Serums")):
+            conn.execute("INSERT INTO products (name, brand, category, compare_group, price, size_text, price_per_ml) VALUES (?, 'B', ?, ?, 10, '50 mL', 0.2)",
+                         (name, category, group))
     html = fresh(client, weather_api, uv_now=5, uv_max=5)
     href = re.search(r'<a class="btn-primary" href="([^"]+)">Browse sunscreens', html).group(1)
     assert href == "/products?category=Sunscreen"
@@ -564,17 +564,17 @@ def test_cool_dry_link_goes_to_moisturizers_filtered_by_cream(client, weather_ap
 def test_hot_humid_links_go_to_cleansers_and_moisturizers(client, weather_api):
     found = hrefs(fresh(client, weather_api, temperature=32, humidity=70))
     assert [label for _h, label in found] == ["Browse cleansers", "Browse moisturizers"]
-    assert [parse_qs(urlparse(h).query) for h, _l in found] == [{"category": ["Cleansers"]}, {"category": ["Moisturizers"]}]
+    assert [parse_qs(urlparse(h).query) for h, _l in found] == [{"category": ["Face Wash & Cleansers"]}, {"category": ["Moisturizers"]}]
 
 
-def test_the_browse_links_lead_to_existing_category_filters(app, client, weather_api):
+def test_the_browse_links_lead_to_existing_group_filters(app, client, weather_api):
     with closing(get_db(app.config["DATABASE"])) as conn, conn:
-        for name, category in (("Rich Cream", "Moisturizers"), ("Light Lotion", "Moisturizers"),
-                               ("Foam Wash", "Cleansers"), ("Day Shield", "Sunscreen")):
-            conn.execute("INSERT INTO products (name, brand, category, price, size_text, price_per_ml) VALUES (?, 'B', ?, 10, '50 mL', 0.2)",
-                         (name, category))
+        for name, category, group in (("Rich Cream", "Moisturizers", "Moisturizers"), ("Light Lotion", "Moisturizers", "Moisturizers"),
+                                      ("Foam Wash", "Cleansers", "Face Wash & Cleansers"), ("Day Shield", "Sunscreen", "Sunscreen")):
+            conn.execute("INSERT INTO products (name, brand, category, compare_group, price, size_text, price_per_ml) VALUES (?, 'B', ?, ?, 10, '50 mL', 0.2)",
+                         (name, category, group))
     products = page(client, "/products")
-    assert '<option value="Moisturizers"' in products and '<option value="Cleansers"' in products
+    assert '<option value="Moisturizers"' in products and '<option value="Face Wash &amp; Cleansers"' in products
 
     cool = hrefs(fresh(client, weather_api, temperature=10, humidity=50))[0][0]
     listing = page(client, cool)
@@ -589,7 +589,7 @@ def test_the_browse_links_lead_to_existing_category_filters(app, client, weather
 
 def test_the_only_product_links_on_the_page_are_the_sunscreen_and_the_browse_links(client, weather_api):
     allowed = {"/products?category=Sunscreen", "/products?category=Moisturizers&q=cream",
-               "/products?category=Cleansers", "/products?category=Moisturizers"}
+               "/products?category=Face+Wash+%26+Cleansers", "/products?category=Moisturizers"}
     for temperature, humidity, uv in ((10, 20, 9), (32, 70, 5), (22, 50, 0), (10, 50, 1)):
         html = fresh(client, weather_api, temperature=temperature, humidity=humidity, uv_now=uv, uv_max=uv)
         found = {h.replace("&amp;", "&") for h in re.findall(r'href="(/products[^"]*)"', content(html))}
@@ -644,7 +644,7 @@ def test_the_texts_and_sources_are_exactly_the_supplied_ones():
     assert c.SUNSCREEN_LINK == {"label": "Browse sunscreens", "note": "Check for SPF and broad-spectrum on the label."}
     assert c.TIP_LINKS == {
         "cool_dry": [{"label": "Browse moisturizers with 'cream' in the name", "category": "Moisturizers", "q": "cream"}],
-        "hot_humid": [{"label": "Browse cleansers", "category": "Cleansers"},
+        "hot_humid": [{"label": "Browse cleansers", "category": "Face Wash & Cleansers"},
                       {"label": "Browse moisturizers", "category": "Moisturizers"}],
     }
 

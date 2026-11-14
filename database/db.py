@@ -5,10 +5,6 @@ from contextlib import closing
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "skin_index.db")
 
-# A comparison group with more products than this needs a brand chosen before its
-# products are listed (and no dropdown lists more than this many)
-COMPARE_DROPDOWN_MAX = 300
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS products (
     id               INTEGER PRIMARY KEY,
@@ -50,6 +46,14 @@ CREATE TABLE IF NOT EXISTS pubmed_searches (
     fetched_at   TEXT NOT NULL,
     papers_json  TEXT NOT NULL,
     PRIMARY KEY (term, reviews_only)
+);
+
+-- Saved PubMed paper counts for the At a glance box: the query text, how many papers it found and
+-- when (UTC). Reused for 24 hours; a count that failed is never saved.
+CREATE TABLE IF NOT EXISTS pubmed_counts (
+    query       TEXT PRIMARY KEY,
+    paper_count INTEGER NOT NULL CHECK (paper_count >= 0),
+    fetched_at  TEXT NOT NULL
 );
 
 -- rate_date is the date the source publishes the rate for (the last working
