@@ -30,7 +30,7 @@ MVP pages:
 
 Live-data pages: Today (UV, humidity and US AQI as information, an attributed "Sun protection today" card and attributed weather-based skin-care tips) and Ingredient Science (PubMed; linked from the footer and the product pages, not the top navigation).
 
-Later: an MCP server over the same data (Step 11), then Ingredient Intelligence (Step 12) and engineering polish (Step 13).
+Later: an MCP server over the same data (Step 11), then the avoid list (Step 12c) and engineering polish (Step 13).
 
 Still out of scope: login, an in-app AI assistant, Indian product data, product recommendations, and skin-type or skin-concern advice. INR is only a display conversion of the USD prices already in the dataset, not Indian product data.
 
@@ -53,10 +53,10 @@ Steps 1-7, 9 and 10 are done (there is no Step 8). Build one step at a time, in 
    - 10c. Ingredient Science: new group names and an "At a glance" box of topic counts — done
    - 10d. "At a glance" shows an ingredient card (what it is, often discussed in relation to, each with a named source) for seven ingredients; counts stay only for ingredients without a card — done
 11. MCP server: tools for search, compare, insights, weather and the avoid-list check. No skin-type tool.
-12. Ingredient Intelligence
+12. Avoid list
     - 12a. Dropped (no normalizer, alias table or fuzzy matching): automatic merging of ingredient names could combine chemically different substances, so ingredient text is kept exactly as the brand wrote it.
-    - 12b. Official ingredient functions, and "has an EU restriction, see CosIng" notes, from the EU CosIng database. Only after checking its data-use terms.
-    - 12c. "My avoid list" checker and a `/products` exclude filter, including common aliases such as Parfum/Fragrance and an optional EU fragrance-allergen list.
+    - 12b. Dropped: already covered by the sourced At a glance cards on the Ingredient Science page.
+    - 12c. "My avoid list": the visitor types ingredients to avoid (removable chips, no suggestions), kept only in their browser; a hide switch on `/products`, and "Lists: ..." tags on the product list, product detail and Compare pages. Whole-word, case-insensitive matching in the brand's own ingredient text, with only two synonym rules (fragrance/parfum and water/aqua/eau).
 13. Engineering polish: GitHub Actions CI, a test hook, a claims-reviewer skill or subagent, an automated test that scans templates for medical-claim wording, README and screenshots.
 
 ## Architecture
@@ -123,7 +123,6 @@ Steps 1-7, 9 and 10 are done (there is no Step 8). Build one step at a time, in 
 - The user's avoid list lives only in the browser (the URL or local storage). It is never saved in the database and never logged.
 - "Not flagged" must never be shown as "safe": an ingredient list with no match only means nothing on the list was found.
 - Every page that shows ingredient information or the avoid list carries a patch-test / see-a-dermatologist note.
-- Regulatory restrictions (for example EU CosIng) are shown only as a pointer to CosIng ("has an EU restriction, see CosIng"), never interpreted.
 - One narrow exception, by decision of the project owner, for the Ingredient Science page's "At a glance" box. (1) Cards (`content/ingredient_cards.py`): for seven ingredients, a "What it is" line and an "Often discussed in relation to" line (1 to 3 topics, which may name skin conditions such as acne or eczema), each taken only from its named source (MedlinePlus, ChEBI, NLM MeSH, American Academy of Dermatology, Cleveland Clinic), shown with the source's name and link and the line "General information from the sources named. Not medical advice." Our wording only names what a source discusses: never "is for", "treats", "cures", "helps", "best for", "safe", "proven" or "effective", no skin types, no advice, and a line with no reliable source is left out. (2) Counts, for ingredients without a card: counts of PubMed papers, including how many papers mention the ingredient together with a topic. These are counts, not claims, always with the line "These numbers show how often topics appear in published papers. They do not show that an ingredient works or is suitable for anyone. Source: PubMed (US National Library of Medicine)." The heading is "Often mentioned together with", never "helps with" or "used for". The exception covers only the texts in `content/ingredient_cards.py` and the topic list in `content/science.py`; those words must not appear anywhere else, and the Step 13 claims scan must allow them only there. Every card entry must keep at least one source with a link; `tests/test_ingredient_cards.py` pins every card text and checks it for banned wording.
 - One narrow exception, by decision of the project owner: the Today page's tips (Step 9). They are quoted word for word from named public sources, each shown with its source label and the line "General information from the sources named. Not medical advice.", so they are not the app's own claims. They include wording such as "tend to suit dry, sensitive skin" and "more effective ... for dry skin" because the sources say so. The exception covers only the texts in `content/today_tips.py`; everywhere else, and for any new text, the rules above apply in full, and the Step 13 claims scan must allow only that file's texts.
 

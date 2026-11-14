@@ -17,10 +17,10 @@ A Flask app for understanding skincare products: ingredients, price per ml, prod
 9. Today page: live UV, humidity and US AQI from Open-Meteo, shown as information, plus general sun-protection guidance based on public UV index categories, and a link to the sunscreen list. No product recommendations. — done
 10. Ingredient Science page (first called Research): PubMed papers as cards under plain labels, with an At a glance box (source-named ingredient cards, topic counts for other ingredients) — done
 11. MCP server (read-only access to the product data): search, compare, insights, weather and an avoid-list check
-12. Ingredient Intelligence
+12. Avoid list
     - 12a. Dropped: automatic merging of ingredient names could combine chemically different substances, so ingredient text is kept exactly as the brand wrote it.
-    - 12b. Official ingredient functions, and "has an EU restriction, see CosIng" notes, from the EU CosIng database (only after checking its data-use terms)
-    - 12c. "My avoid list" checker and a Products exclude filter, with common aliases such as Parfum/Fragrance and an optional EU fragrance-allergen list
+    - 12b. Dropped: already covered by the sourced At a glance cards on the Ingredient Science page.
+    - 12c. "My avoid list": type ingredients to avoid, hide products that list them, and see which ingredient matched
 13. Engineering polish: GitHub Actions CI, a test hook, a claims-reviewer check, an automated scan of the pages for medical-claim wording, and screenshots
 
 Not planned: login, an in-app AI assistant, Indian product data, product recommendations.
