@@ -134,6 +134,7 @@
     {% if result.comparable %}
     <p class="ingredients-note">Likes, ratings and reviews come from one retailer's site and are as of March 2023.</p>
     <p class="ingredients-note">Ingredient order is a rough guide. Amounts are not in our data.</p>
+    <p class="ingredients-note">Ingredient names are compared ignoring capital letters, and Water, Aqua and Eau count as the same ingredient. No other names are matched or merged.</p>
     <p class="ingredients-note">Shared ingredients show what the two products have in common. They do not mean the formulas behave the same.</p>
     {% else %}
     <p class="notice-action"><a class="btn-primary" href="{{ retry_url }}">{{ retry_label }}</a></p>

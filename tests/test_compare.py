@@ -41,7 +41,7 @@ def save_rate(db_path, rate=90.0):
 
 @pytest.fixture
 def shop(app):
-    """Face Serums: three with niacinamide (n1, n2, n3), one with vitamin C (c1), one with neither
+    """Face Serums: three with niacinamide (n1, n2, n3), one with ascorbic acid (c1), one with neither
     (plain). Moisturizers: two with niacinamide (m1, m2). A Mini Size product and a lone Sunscreen."""
     db = app.config["DATABASE"]
     return {
@@ -113,8 +113,8 @@ def test_empty_page_offers_only_categories_with_two_products_and_nothing_else(sh
 def test_choosing_a_category_lists_its_main_ingredients_with_counts(shop, client):
     html = page(client, "/compare?group=Face+Serums")
     assert selected(html, "group") == ["Face Serums"]
-    assert labels(html, "ingredient") == ["niacinamide (3 products)", "vitamin C (1 product, too few to compare)"]
-    assert 'value="vitamin-c"  disabled' in html or re.search(r'value="vitamin-c"[^>]*disabled', html)
+    assert labels(html, "ingredient") == ["niacinamide (3 products)", "ascorbic acid (1 product, too few to compare)"]
+    assert re.search(r'value="ascorbic-acid"[^>]*disabled', html)
     assert not re.search(r'value="niacinamide"[^>]*disabled', html)
     assert options(html, "a") is None and options(html, "b") is None
 
@@ -135,7 +135,7 @@ def test_after_choosing_a_the_b_list_is_limited_to_the_same_category_and_ingredi
     assert labels(html, "b") == ["Glow Co - Delta Serum (100 mL, $30.00)",
                                  "Dew Labs - Echo Niacinamide Serum (50 mL, $10.00)"]
     assert not any("Bravo Serum" in label for label in labels(html, "b"))
-    for other in ("Charlie Serum", "Foxtrot Cream", "Golf Cream"):             # a vitamin C serum, another category
+    for other in ("Charlie Serum", "Foxtrot Cream", "Golf Cream"):             # an ascorbic acid serum, another category
         assert other not in html
 
 
@@ -147,9 +147,9 @@ def test_after_choosing_b_first_the_a_list_is_limited_the_same_way(shop, client)
 
 def test_a_product_in_two_main_groups_lets_you_choose_which_one(app, client):
     db = app.config["DATABASE"]
-    a = add(db, "Duo Serum", ingredients=[("Niacinamide",), ("Sodium Hyaluronate",)])
+    a = add(db, "Duo Serum", ingredients=[("Niacinamide",), ("Hyaluronic Acid",)])
     add(db, "N Serum", ingredients=[("Niacinamide",)])
-    add(db, "H Serum", ingredients=[("Sodium Hyaluronate",)])
+    add(db, "H Serum", ingredients=[("Hyaluronic Acid",)])
     html = page(client, f"/compare?a={a}")
     assert labels(html, "ingredient") == ["niacinamide (2 products)", "hyaluronic acid (2 products)"]
     assert selected(html, "ingredient") == [] and options(html, "b") is None   # B waits for the choice
@@ -193,10 +193,10 @@ def test_a_category_with_one_product_says_so_plainly(shop, client):
 
 def test_a_main_ingredient_with_one_product_says_so_plainly_and_lists_no_products(shop, client):
     html = page(client, f"/compare?a={shop['c1']}")
-    assert "Only 1 product in Face Serums is in the vitamin C group, so there is nothing to compare." in html
+    assert "Only 1 product in Face Serums is in the ascorbic acid group, so there is nothing to compare." in html
     assert options(html, "a") is None and options(html, "b") is None
-    html = page(client, "/compare?group=Face+Serums&ingredient=vitamin-c")
-    assert "Only 1 product in Face Serums is in the vitamin C group, so there is nothing to compare." in html
+    html = page(client, "/compare?group=Face+Serums&ingredient=ascorbic-acid")
+    assert "Only 1 product in Face Serums is in the ascorbic acid group, so there is nothing to compare." in html
 
 
 def test_a_category_where_no_main_ingredient_has_two_products(app, client):
@@ -365,7 +365,7 @@ def test_no_verdict_overlap_or_ranking_is_shown(shop, client):
 def test_a_niacinamide_serum_and_a_vitamin_c_serum_are_not_compared(shop, client):
     save_rate(client.application.config["DATABASE"], 90.0)
     html = compare_html(client, shop, "n1", "c1")
-    assert ("Product A is grouped under niacinamide and product B under vitamin C, so they can't be compared "
+    assert ("Product A is grouped under niacinamide and product B under ascorbic acid, so they can't be compared "
             "here: they share no main ingredient group.") in html.replace("&#39;", "'")
     assert cells(html, "Name") == ["Bravo Serum", "Charlie Serum"] and cells(html, "≈ Price (₹)") == ["₹1,800", "₹1,350"]
     for absent in ("Price per ml", "Likes", "Rating", "Reviews", "Ingredients both have", "Ingredient order is a rough"):
@@ -451,3 +451,13 @@ def test_each_row_on_the_list_links_to_compare(shop, client):
     for key in ("n1", "m1", "mini"):
         assert f'<a class="row-compare" href="/compare?a={shop[key]}">Compare</a>' in html
     assert re.findall(r"<th[^>]*>(.*?)</th>", html) == ["Product", "Brand", "Category", "Size", "Price (USD)"]
+
+
+def test_the_page_says_how_ingredient_names_are_compared(app, client):
+    db = app.config["DATABASE"]
+    a = add(db, "Bravo Serum", ingredients=[("Water",), ("Niacinamide",)])
+    b = add(db, "Delta Serum", ingredients=[("Water",), ("Niacinamide",)])
+    note = ("Ingredient names are compared ignoring capital letters, and Water, Aqua and Eau count as the same "
+            "ingredient. No other names are matched or merged.")
+    assert note in page(client, f"/compare?a={a}&b={b}")
+    assert note not in page(client, "/compare")

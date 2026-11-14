@@ -512,7 +512,7 @@ def test_a_product_with_a_main_ingredient_links_to_studies_on_it(app, client):
 def test_a_product_in_several_main_groups_gets_a_link_for_each(app, client):
     html = product_page(app, client, "Duo Serum", ["Water", "Niacinamide", "Glycolic Acid"])
     assert science_links(html) == [("/science?q=niacinamide", "Studies on niacinamide"),
-                                   ("/science?q=alpha+hydroxy+acid", "Studies on AHA (glycolic or lactic acid)")]
+                                   ("/science?q=glycolic+acid", "Studies on glycolic acid")]
 
 
 def test_a_product_in_no_main_group_has_no_studies_link(app, client):
@@ -529,5 +529,5 @@ def test_the_studies_link_leads_to_a_search_with_the_science_term(app, client, p
     seed(pubmed_api)
     html = product_page(app, client, "Vit Serum", ["Ascorbic Acid"])
     (href, label), = science_links(html)
-    assert label == "Studies on vitamin C" and parse_qs(urlparse(href).query) == {"q": ["vitamin c"]}
-    assert len(cards(page(client, href))) == 3 and pubmed_api.calls[0][1]["term"] == "vitamin c AND skin"
+    assert label == "Studies on ascorbic acid" and parse_qs(urlparse(href).query) == {"q": ["ascorbic acid"]}
+    assert len(cards(page(client, href))) == 3 and pubmed_api.calls[0][1]["term"] == "ascorbic acid AND skin"

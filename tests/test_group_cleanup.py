@@ -221,7 +221,7 @@ def test_compare_still_needs_the_same_group_and_the_same_main_ingredient(db_path
 
 def test_the_main_ingredient_choices_follow_the_new_group(db_path):
     shared = {g["key"]: g["products"] for g in list_group_ingredients("Sunscreen › Face", db_path)}
-    assert shared == {"niacinamide": 4, "vitamin-c": 1}
+    assert shared == {"niacinamide": 4, "ascorbic-acid": 1}
 
 
 # ------------------------------------------------------------------ the dropdowns (UI)

@@ -60,12 +60,12 @@ def test_a_niacinamide_serum_cannot_be_compared_with_a_vitamin_c_serum(db_path):
     result = compare_products(a, b, db_path)
     assert result["status"] == "different_ingredients" and result["comparable"] is False
     assert result["a_group"] == result["b_group"] == "Face Serums"          # same category, still refused
-    assert (result["a_main"], result["b_main"], result["shared_main"]) == (["niacinamide"], ["vitamin-c"], [])
+    assert (result["a_main"], result["b_main"], result["shared_main"]) == (["niacinamide"], ["ascorbic-acid"], [])
     assert result["ingredients"] is None
 
 
 def test_a_product_in_several_main_groups_is_comparable_through_a_shared_one(db_path):
-    a, b = pair(db_path, [("Niacinamide",), ("Sodium Hyaluronate",)], [("Water",), ("Sodium Hyaluronate",)])
+    a, b = pair(db_path, [("Niacinamide",), ("Hyaluronic Acid",)], [("Water",), ("Hyaluronic Acid",)])
     result = compare_products(a, b, db_path)
     assert result["a_main"] == ["niacinamide", "hyaluronic-acid"] and result["b_main"] == ["hyaluronic-acid"]
     assert result["shared_main"] == ["hyaluronic-acid"] and result["comparable"] is True
@@ -211,12 +211,12 @@ def test_list_groups_empty_database(db_path):
 def test_the_main_ingredients_of_a_group_are_counted_in_the_order_of_the_content_file(db_path):
     add(db_path, "N1", ingredients=[("Niacinamide",)])
     add(db_path, "N2", ingredients=[("Water",), ("Niacinamide",)])
-    add(db_path, "V1", ingredients=[("Ascorbyl Glucoside",)])
+    add(db_path, "V1", ingredients=[("Ascorbic Acid",)])
     add(db_path, "P1", ingredients=[("Water",)])                                  # in no main group
     add(db_path, "Other group", group="Moisturizers", ingredients=[("Ceramide NP",)])
     assert list_group_ingredients("Face Serums", db_path) == [
         {"key": "niacinamide", "label": "niacinamide", "products": 2},
-        {"key": "vitamin-c", "label": "vitamin C", "products": 1},                # one product: too few
+        {"key": "ascorbic-acid", "label": "ascorbic acid", "products": 1},                # one product: too few
     ]
     assert list_group_ingredients("Nope", db_path) == []
 
@@ -229,12 +229,12 @@ def test_products_are_limited_to_the_group_and_main_ingredient_and_sorted_by_nam
     add(db_path, "charlie", ingredients=[("Niacinamide",)])
     add(db_path, "Bravo", ingredients=[("Water",), ("Niacinamide",)])
     add(db_path, "Alpha", ingredients=[("Water",)], brand="X")                   # name: no main ingredient
-    add(db_path, "Zulu Vitamin C Serum", ingredients=[("Water",)])
+    add(db_path, "Zulu Ascorbic Acid Serum", ingredients=[("Water",)])
     add(db_path, "Cream", group="Moisturizers", ingredients=[("Niacinamide",)])  # other group
     listing = list_products_in_group("Face Serums", "niacinamide", db_path=db_path)
     assert names(listing) == ["Bravo", "charlie"]
     assert set(listing[0]) == {"id", "name", "brand", "size_text", "price"}
-    assert names(list_products_in_group("Face Serums", "vitamin-c", db_path=db_path)) == ["Zulu Vitamin C Serum"]
+    assert names(list_products_in_group("Face Serums", "ascorbic-acid", db_path=db_path)) == ["Zulu Ascorbic Acid Serum"]
     assert list_products_in_group("Face Serums", "no-such-key", db_path=db_path) == []
 
 

@@ -10,7 +10,7 @@ A read-only look at the product database, made through the read-only SQLite MCP 
 
 ## 1. Ingredient spellings that probably mean the same thing
 
-Ingredient names come from the labels as printed, so the same ingredient is often stored under several spellings. Most of the damage is line breaks and missing spaces from the source text. This matters for the ingredient-name normalizer planned as Step 12a and for any count that groups products by ingredient.
+Ingredient names come from the labels as printed, so the same ingredient is often stored under several spellings. Most of the damage is line breaks and missing spaces from the source text. These are documented observations only: Step 12a (an ingredient-name normalizer) was dropped on purpose, because automatic merging of ingredient names could combine chemically different substances, so ingredient text is kept exactly as the brand wrote it. None of the spellings below were changed or merged, and none will be by a script. The only name matching in the app is ignoring capital letters and treating Water, Aqua and Eau as one ingredient (done when the data is loaded); the Compare page says so. They matter for any count that groups products by ingredient, which treats each spelling as its own name.
 
 | Kind | Groups or pairs | Names involved |
 |---|---:|---:|
@@ -62,7 +62,7 @@ Some groups are not line-break damage: `Glycerin` has a variant `) Glycerin` (a 
 | `2-Hexanediol` (330) | `2 Hexanedio` (1) |
 | `Glyceryl Stearate` (315) | `Glyceryl Distearate` (4) |
 
-**Not every close pair is the same ingredient.** For a normalizer these need a human decision, not an automatic merge:
+**Not every close pair is the same ingredient.** This is why nothing is merged automatically: these need a human decision, and the app does not make one:
 
 | Pair | Why it needs care |
 |---|---|
