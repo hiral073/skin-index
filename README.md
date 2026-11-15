@@ -72,7 +72,40 @@ pytest
 
 ## MCP in this project
 
-A read-only SQLite MCP server lets Claude Code answer questions about `skin_index.db` in plain English (for example "count products per compare_group"). It is a developer tool only: the app does not use it, and the app's own MCP server is still a later step. The server is [mcp-sqlite-insights](https://github.com/RayaanKaz/mcp-sqlite-insights), pinned to one commit and installed in its own virtual environment under `tools/`, which is not committed.
+There are two MCP servers here. The first is the project's own (Step 11); the second is a developer tool for exploring the database.
+
+### The Skin Index MCP server
+
+`mcp_server/server.py` (the official Python MCP SDK, FastMCP, stdio, free to run) lets Claude Code ask about the same data as the website. It only wraps the app's service functions, so it follows the same rules: it lists facts and numbers, never recommends a product, has no skin-type or suitability tool, and "none found" is never "safe". Every answer names its source, and bad input gives a plain error message. The product database is opened read-only. All eight tools are read-only; the one that saves anything is `find_studies`, which keeps PubMed paper lists for 24 hours in the `pubmed_searches` cache table, as the Ingredient Science page does.
+
+| Tool | What it returns | Source named |
+|---|---|---|
+| `search_products` | Products by text in the name or brand, group and an ingredient word (whole words in the brand's ingredient text); up to 25, USD prices | March 2023 Sephora US snapshot |
+| `get_product_detail` | One product: facts, likes, rating, reviews, ingredients in label order, strengths only when the brand printed them | March 2023 Sephora US snapshot |
+| `compare_products` | Two products side by side, only for the same group and a shared main ingredient group; otherwise says why not. No verdict | March 2023 Sephora US snapshot |
+| `get_insights` | Most liked brands and products (shopper engagement, not sales), overall or in one group | March 2023 Sephora US snapshot |
+| `list_groups` | Group names with product counts | March 2023 Sephora US snapshot |
+| `get_weather` | UV now and peak, humidity, temperature and US AQI for a city (optional country and region) or for latitude and longitude, as information only; always names the place used plus up to 2 other matches | Open-Meteo, CAMS, GeoNames |
+| `find_studies` | Up to 10 PubMed papers for "<ingredient> AND skin" (title, journal, year, kind of paper, link) | PubMed |
+| `check_avoid_list` | Which of your words appear in one product's ingredient text, with the same matching as the site; the words are not stored | March 2023 Sephora US snapshot |
+
+Connect it once, from the project folder (Windows PowerShell). Type this yourself; nothing is written to the repository with `--scope local`:
+
+```
+claude mcp add --scope local --transport stdio skin-index -- "C:\HiralWork\Skincare\venv\Scripts\python.exe" "C:\HiralWork\Skincare\mcp_server\server.py"
+```
+
+Check it: start a new session with `claude` in this folder and run `/mcp`; `skin-index` should show as connected with 8 tools (outside a session, `claude mcp list` shows the same). To use another database file, set the `SKIN_INDEX_DB` environment variable. Remove it with `claude mcp remove skin-index --scope local`.
+
+Demo script, three questions to ask Claude Code:
+
+1. "Which comparison groups have the most products, and what are the most liked products in Face Serums?" (`list_groups`, `get_insights`)
+2. "Find serums that list niacinamide, then compare the first two that can be compared, and say why if they can't." (`search_products`, `compare_products`)
+3. "Check product 1410 for fragrance and alcohol, then show the PubMed papers on niacinamide and today's UV in Pune." (`check_avoid_list`, `find_studies`, `get_weather`)
+
+### A developer tool: a read-only SQLite explorer
+
+A read-only SQLite MCP server lets Claude Code answer questions about `skin_index.db` in plain English (for example "count products per compare_group"). It is a developer tool only: the app does not use it. The server is [mcp-sqlite-insights](https://github.com/RayaanKaz/mcp-sqlite-insights), pinned to one commit and installed in its own virtual environment under `tools/`, which is not committed.
 
 It is read-only: SQLite opens the file read-only, so a write is refused even if one is asked for. That covers this server only. Claude Code's own shell and edit tools can still reach the file, so keep a copy if the data matters.
 
