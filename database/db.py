@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from contextlib import closing
+from pathlib import Path
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "skin_index.db")
@@ -95,8 +96,14 @@ SAMPLE_PRODUCTS = [
 ]
 
 
+def read_only_uri(db_path=None):
+    """A `file:` URI that opens the database read-only (for `get_db`)."""
+    return Path(db_path or DB_PATH).resolve().as_uri() + "?mode=ro"
+
+
 def get_db(db_path=None):
-    conn = sqlite3.connect(db_path or DB_PATH)
+    path = db_path or DB_PATH
+    conn = sqlite3.connect(path, uri=str(path).startswith("file:"))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

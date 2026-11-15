@@ -12,6 +12,7 @@ from content import science as science_content
 from content import ingredient_cards as cards_content
 from content import main_ingredients as main_ingredients_content
 from content import science as science_content
+from content.compare_groups import GROUP_SEPARATOR
 from database.db import get_db, init_db
 from database.ingredient_match import ingredient_key, term_matches
 from live.currency import CurrencyError, fetch_usd_inr
@@ -122,6 +123,79 @@ def _load_product(conn, product_id):
 def escape_like(text):
     """Make %, _ and \\ in user text match literally inside LIKE ... ESCAPE '\\'."""
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# ------------------------------------------------------------------ #
+# Product search                                                      #
+# ------------------------------------------------------------------ #
+
+# All user input reaches SQLite as bound parameters. The sort key is bound too
+# (CASE picks the column), so no SQL text is ever built from the request.
+# The "category" filter and column are the cleaned compare group (content/compare_groups.py),
+# not the original `category` column, which only the detail page shows. A parent ("Sunscreen")
+# also matches its subcategories ("Sunscreen › Face"); a subcategory matches only itself.
+FILTER_SQL = """
+    FROM products
+    WHERE (:q = '' OR name LIKE :like ESCAPE '\\' OR brand LIKE :like ESCAPE '\\')
+      AND (:category = '' OR compare_group = :category OR compare_group LIKE :sub_prefix ESCAPE '\\')
+"""
+COUNT_SQL = "SELECT COUNT(*) " + FILTER_SQL
+PRODUCTS_SQL = (
+    "SELECT id, name, brand, compare_group, price, size_text, ingredients_text "
+    + FILTER_SQL
+    + """
+    ORDER BY
+        CASE WHEN :sort = 'price' THEN price END,
+        CASE WHEN :sort = 'price_per_ml' THEN price_per_ml END,
+        name COLLATE NOCASE,
+        id
+    LIMIT :limit OFFSET :offset
+"""
+)
+CATEGORIES_SQL = (
+    "SELECT DISTINCT compare_group FROM products WHERE compare_group IS NOT NULL ORDER BY compare_group"
+)
+
+SEARCH_MAX_LIMIT = 25
+
+
+def search_products(query="", group="", ingredient="", limit=10, db_path=None):
+    """Products whose name or brand contains `query`, in a comparison `group` (a parent also
+    matches its subcategories), listing `ingredient` as a whole word in the brand's own text.
+
+    Plain data only. Returns {"status", "total", "products"}: status is "ok" or
+    "invalid_ingredient" (the ingredient word is not usable); products (at most `limit`, 1 to
+    SEARCH_MAX_LIMIT, sorted by name) are {"id", "name", "brand", "group", "price", "size_text"}.
+    Prices are USD. An empty filter is not applied.
+    """
+    query = query.strip() if isinstance(query, str) else ""
+    group = group.strip() if isinstance(group, str) else ""
+    limit = min(max(limit if isinstance(limit, int) and not isinstance(limit, bool) else 10, 1), SEARCH_MAX_LIMIT)
+    term = None
+    if isinstance(ingredient, str) and ingredient.strip():
+        term = clean_avoid_term(ingredient)
+        if term is None:
+            return {"status": "invalid_ingredient", "total": 0, "products": []}
+    params = {"q": query, "like": f"%{escape_like(query)}%", "category": group,
+              "sub_prefix": escape_like(group + GROUP_SEPARATOR) + "%", "sort": "name"}
+    init_db(db_path)
+    with closing(get_db(db_path)) as conn:
+        if term:   # the word is matched in the ingredient text, so every row is checked first
+            found = [dict(r) for r in conn.execute(PRODUCTS_SQL, {**params, "limit": -1, "offset": 0})]
+            found = [r for r in found
+                     if any(term_matches(term, name) for name in split_ingredients_text(r["ingredients_text"]))]
+            total, rows = len(found), found[:limit]
+        else:
+            total = conn.execute(COUNT_SQL, params).fetchone()[0]
+            rows = [dict(r) for r in conn.execute(PRODUCTS_SQL, {**params, "limit": limit, "offset": 0})]
+    return {
+        "status": "ok", "total": total,
+        "products": [
+            {"id": r["id"], "name": r["name"], "brand": r["brand"], "group": r["compare_group"],
+             "price": r["price"], "size_text": r["size_text"]}
+            for r in rows
+        ],
+    }
 
 
 # ------------------------------------------------------------------ #
