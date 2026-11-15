@@ -926,6 +926,78 @@ def get_today_conditions(city=None, latitude=None, longitude=None, label=None):
     return result
 
 
+WEATHER_REPORT_ALTERNATIVES = 2   # other matching places named beside the one used
+
+
+def get_weather_report(city=None, country=None, region=None, latitude=None, longitude=None):
+    """Live conditions for one place, always with the place that was used (for the MCP weather tool).
+
+    Unlike get_today_conditions it never stops at a list of places: coordinates are used as given,
+    and a city name takes the first match of the geocoding service (optionally limited to a region
+    and/or country, compared ignoring capital letters), naming the next 2 matches as alternatives.
+
+    Returns {"status", "place_source", "place", "place_used", "other_matches", "local_time", "uv",
+    "humidity", "temperature_c", "aqi", "timeline", "missing"}:
+    - status: "ok", "no_match" (no place fits the name and filters), "invalid" (unusable text,
+      coordinates, or neither a city nor coordinates) or "unavailable" (a service could not be reached).
+    - place_source: "coordinates" or "first match of the place search"; place and other_matches
+      entries are {"name", "region", "country", "latitude", "longitude"}; place_used is the text
+      "Name, Region, Country".
+    - the condition fields are those of get_today_conditions.
+    """
+    config = TODAY_CONFIG
+    result = {"status": None, "place_source": None, "place": None, "place_used": None, "other_matches": [],
+              "local_time": None, "uv": None, "humidity": None, "temperature_c": None, "aqi": None,
+              "timeline": {"available": False, "reaches": False, "ranges": [], "peak": None}, "missing": []}
+
+    def given(value):
+        return value is not None and str(value).strip() != ""
+
+    named = {}
+    for key, value in (("city", city), ("region", region), ("country", country)):
+        if given(value):
+            named[key] = clean_place_text(value, config["max_city_length"])
+            if named[key] is None:
+                result["status"] = "invalid"
+                return result
+
+    if latitude is not None or longitude is not None:
+        coordinates = parse_coordinates(latitude, longitude)
+        if coordinates is None:
+            result["status"] = "invalid"
+            return result
+        place = {"name": named.get("city", "Selected place"), "region": named.get("region"),
+                 "country": named.get("country"), "latitude": coordinates[0], "longitude": coordinates[1]}
+        result["place_source"] = "coordinates"
+    elif "city" in named:
+        try:
+            places = search_places(named["city"])
+        except WeatherError:
+            result["status"] = "unavailable"
+            return result
+        for key in ("region", "country"):
+            if key in named:
+                places = [p for p in places if p[key] is not None and p[key].casefold() == named[key].casefold()]
+        if not places:
+            result["status"] = "no_match"
+            return result
+        keep = ("name", "region", "country", "latitude", "longitude")
+        place = {k: places[0][k] for k in keep}
+        result["other_matches"] = [{k: p[k] for k in keep} for p in places[1:1 + WEATHER_REPORT_ALTERNATIVES]]
+        result["place_source"] = "first match of the place search"
+    else:
+        result["status"] = "invalid"
+        return result
+
+    result["place"] = place
+    result["place_used"] = ", ".join(p for p in (place["name"], place["region"], place["country"]) if p)
+    conditions = get_today_conditions(latitude=place["latitude"], longitude=place["longitude"], label=place["name"])
+    result["status"] = conditions["status"]
+    for key in ("local_time", "uv", "humidity", "temperature_c", "aqi", "timeline", "missing"):
+        result[key] = conditions[key]
+    return result
+
+
 # ------------------------------------------------------------------ #
 # Ingredient Science: published papers from PubMed                    #
 # ------------------------------------------------------------------ #
