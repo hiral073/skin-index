@@ -15,3 +15,8 @@ tools/
 # Original photo downloads (1-6 MB each); only the resized files in static/img are committed
 static/img/*-unsplash.jpg
 .playwright-mcp/
+
+# Screenshots: only the curated docs/screenshots/redesign/ set is committed; raw and before/after sets stay local
+docs/screenshots/before/
+docs/screenshots/*
+!docs/screenshots/redesign/
