@@ -111,12 +111,12 @@ def test_empty_page_offers_only_categories_with_two_products_and_nothing_else(sh
 
 
 def test_choosing_a_category_lists_its_main_ingredients_with_counts(shop, client):
-    html = page(client, "/compare?group=Face+Serums")
+    html = page(client, "/compare?group=Face+Serums&mode=products")
     assert selected(html, "group") == ["Face Serums"]
-    assert labels(html, "ingredient") == ["niacinamide (3 products)", "ascorbic acid (1 product, too few to compare)"]
-    assert re.search(r'value="ascorbic-acid"[^>]*disabled', html)
+    assert labels(html, "ingredient") == ["niacinamide (3 products)"]          # only groups with 2 or more products
     assert not re.search(r'value="niacinamide"[^>]*disabled', html)
-    assert options(html, "a") is None and options(html, "b") is None
+    assert "ascorbic" not in html and selected(html, "ingredient") == []        # the narrowing is optional: "Any"
+    assert len(labels(html, "a")) == 5 and len(labels(html, "b")) == 5          # every product of the category
 
 
 def test_choosing_a_main_ingredient_lists_the_products_in_both_pickers(shop, client):
@@ -130,19 +130,21 @@ def test_choosing_a_main_ingredient_lists_the_products_in_both_pickers(shop, cli
 
 def test_after_choosing_a_the_b_list_is_limited_to_the_same_category_and_ingredient_without_a(shop, client):
     html = page(client, f"/compare?a={shop['n1']}")
-    assert selected(html, "group") == ["Face Serums"] and selected(html, "ingredient") == ["niacinamide"]
+    assert selected(html, "group") == ["Face Serums"] and selected(html, "ingredient") == []
     assert selected(html, "a") == [str(shop["n1"])]
-    assert labels(html, "b") == ["Glow Co - Delta Serum (100 mL, $30.00)",
-                                 "Dew Labs - Echo Niacinamide Serum (50 mL, $10.00)"]
+    assert labels(html, "b") == ["Glow Co - Charlie Serum (15 mL, $15.00)", "Glow Co - Delta Serum (100 mL, $30.00)",
+                                 "Dew Labs - Echo Niacinamide Serum (50 mL, $10.00)",
+                                 "Dew Labs - Plain Serum (100 mL, $20.00)"]
     assert not any("Bravo Serum" in label for label in labels(html, "b"))
-    for other in ("Charlie Serum", "Foxtrot Cream", "Golf Cream"):             # an ascorbic acid serum, another category
+    for other in ("Foxtrot Cream", "Golf Cream"):                              # another category
         assert other not in html
 
 
 def test_after_choosing_b_first_the_a_list_is_limited_the_same_way(shop, client):
     html = page(client, f"/compare?b={shop['n2']}")
-    assert labels(html, "a") == ["Dew Labs - Bravo Serum (100 mL, $20.00)",
-                                 "Dew Labs - Echo Niacinamide Serum (50 mL, $10.00)"]
+    assert labels(html, "a") == ["Dew Labs - Bravo Serum (100 mL, $20.00)", "Glow Co - Charlie Serum (15 mL, $15.00)",
+                                 "Dew Labs - Echo Niacinamide Serum (50 mL, $10.00)",
+                                 "Dew Labs - Plain Serum (100 mL, $20.00)"]
 
 
 def test_a_product_in_two_main_groups_lets_you_choose_which_one(app, client):
@@ -152,14 +154,14 @@ def test_a_product_in_two_main_groups_lets_you_choose_which_one(app, client):
     add(db, "H Serum", ingredients=[("Hyaluronic Acid",)])
     html = page(client, f"/compare?a={a}")
     assert labels(html, "ingredient") == ["niacinamide (2 products)", "hyaluronic acid (2 products)"]
-    assert selected(html, "ingredient") == [] and options(html, "b") is None   # B waits for the choice
+    assert selected(html, "ingredient") == [] and len(labels(html, "b")) == 2   # the choice only narrows the list
     html = page(client, f"/compare?a={a}&ingredient=hyaluronic-acid")
     assert labels(html, "b") == ["Dew Labs - H Serum (100 mL, $20.00)"]
 
 
 def test_a_leftover_product_from_an_old_category_or_ingredient_is_not_a_choice(shop, client):
     html = page(client, f"/compare?a={shop['m1']}&group=Face+Serums")            # form sent without JavaScript
-    assert options(html, "a") is None and "Foxtrot Cream" not in html and selected(html, "group") == ["Face Serums"]
+    assert selected(html, "a") == [] and "Foxtrot Cream" not in html and selected(html, "group") == ["Face Serums"]
     html = page(client, f"/compare?a={shop['c1']}&group=Face+Serums&ingredient=niacinamide")
     assert selected(html, "a") == [] and "Charlie Serum" not in html
     html = page(client, f"/compare?a={shop['n1']}&group=Face+Serums&ingredient=niacinamide")
@@ -170,7 +172,7 @@ def test_an_unknown_category_or_ingredient_is_ignored(shop, client):
     html = page(client, "/compare?group=Nope&ingredient=nope")
     assert options(html, "ingredient") is None
     html = page(client, "/compare?group=Face+Serums&ingredient=nope")
-    assert selected(html, "ingredient") == [] and options(html, "a") is None
+    assert selected(html, "ingredient") == [] and len(labels(html, "a")) == 5      # an unknown narrowing is "Any"
 
 
 def test_every_picker_state_has_a_visible_show_button_and_the_javascript_hooks(shop, client):
@@ -191,36 +193,36 @@ def test_a_category_with_one_product_says_so_plainly(shop, client):
     assert options(html, "b") is None
 
 
-def test_a_main_ingredient_with_one_product_says_so_plainly_and_lists_no_products(shop, client):
+def test_a_main_ingredient_with_one_product_is_not_offered_and_blocks_nothing(shop, client):
     html = page(client, f"/compare?a={shop['c1']}")
-    assert "Only 1 product in Face Serums is in the ascorbic acid group, so there is nothing to compare." in html
-    assert options(html, "a") is None and options(html, "b") is None
+    assert "nothing to compare" not in html and "ascorbic" not in html
+    assert len(labels(html, "b")) == 4 and selected(html, "a") == [str(shop["c1"])]
     html = page(client, "/compare?group=Face+Serums&ingredient=ascorbic-acid")
-    assert "Only 1 product in Face Serums is in the ascorbic acid group, so there is nothing to compare." in html
+    assert "nothing to compare" not in html and len(labels(html, "a")) == 5
 
 
-def test_a_category_where_no_main_ingredient_has_two_products(app, client):
+def test_a_category_where_no_main_ingredient_has_two_products_still_lists_its_products(app, client):
     db = app.config["DATABASE"]
     add(db, "One", group="Toners", ingredients=[("Niacinamide",)])
     add(db, "Two", group="Toners", ingredients=[("Ascorbic Acid",)])
-    html = page(client, "/compare?group=Toners")
-    assert "In Toners, no main ingredient group has 2 or more products, so there is nothing to compare." in html
-    assert options(html, "a") is None
+    html = page(client, "/compare?group=Toners&mode=products")
+    assert "nothing to compare" not in html and "no main ingredient group" not in html
+    assert labels(html, "a") == ["Dew Labs - One (100 mL, $20.00)", "Dew Labs - Two (100 mL, $20.00)"]
+    assert options(html, "ingredient") == [("", "Any")]                        # no group with 2 products: only "Any"
 
 
-def test_a_category_with_no_product_in_a_main_group(app, client):
+def test_a_category_with_no_product_in_a_main_group_still_lists_its_products(app, client):
     db = app.config["DATABASE"]
     add(db, "One", group="Toners", ingredients=[("Water",)])
     add(db, "Two", group="Toners", ingredients=[("Glycerin",)])
-    html = page(client, "/compare?group=Toners")
-    assert "No product in Toners is in a main ingredient group, so there is nothing to compare." in html
+    html = page(client, "/compare?group=Toners&mode=products")
+    assert "nothing to compare" not in html and len(labels(html, "a")) == 2
 
 
-def test_a_product_in_no_main_group_cannot_be_compared(shop, client):
+def test_a_product_in_no_main_group_can_still_be_compared(shop, client):
     html = page(client, f"/compare?a={shop['plain']}")
-    assert "Product A doesn't name any of the main ingredients we group by or list one among its first 10 " \
-           "ingredients, so it can't be compared here." in html.replace("&#39;", "'")
-    assert options(html, "b") is None
+    assert "doesn't name any of the main ingredients" not in html.replace("&#39;", "'")
+    assert len(labels(html, "b")) == 4                                          # every other product of the category
 
 
 # ---------------------------------------------------------------- bad and unusual ids
@@ -362,16 +364,14 @@ def test_no_verdict_overlap_or_ranking_is_shown(shop, client):
 
 # ---------------------------------------------------------------- not comparable
 
-def test_a_niacinamide_serum_and_a_vitamin_c_serum_are_not_compared(shop, client):
+def test_a_niacinamide_serum_and_a_vitamin_c_serum_are_compared_in_the_same_category(shop, client):
     save_rate(client.application.config["DATABASE"], 90.0)
     html = compare_html(client, shop, "n1", "c1")
-    assert ("Product A is grouped under niacinamide and product B under ascorbic acid, so they can't be compared "
-            "here: they share no main ingredient group.") in html.replace("&#39;", "'")
+    assert "share no main ingredient group" not in html and "can't be compared" not in html.replace("&#39;", "'")
     assert cells(html, "Name") == ["Bravo Serum", "Charlie Serum"] and cells(html, "≈ Price (₹)") == ["₹1,800", "₹1,350"]
-    for absent in ("Price per ml", "Likes", "Rating", "Reviews", "Ingredients both have", "Ingredient order is a rough"):
-        assert absent not in html, absent
-    link = re.search(r'<a class="btn-primary" href="([^"]+)">Choose another product to compare with A</a>', html)
-    assert link and link.group(1) == f"/compare?a={shop['n1']}"
+    for present in ("Price per ml", "Likes", "Rating", "Reviews", "Ingredients both have", "Ingredient order is a rough"):
+        assert present in html, present
+    assert "Choose another product to compare with A" not in html
 
 
 def test_different_categories_are_not_compared_even_with_the_same_main_ingredient(shop, client):
@@ -384,10 +384,10 @@ def test_different_categories_are_not_compared_even_with_the_same_main_ingredien
     assert link and link.group(1) == f"/compare?a={shop['n1']}"
 
 
-def test_a_product_in_no_main_group_in_a_pair_gets_its_own_message(shop, client):
+def test_a_product_in_no_main_group_in_a_pair_is_still_compared(shop, client):
     html = compare_html(client, shop, "n1", "plain").replace("&#39;", "'")
-    assert "Product B doesn't name any of the main ingredients" in html and "Product A doesn't" not in html
-    assert "Ingredients both have" not in html
+    assert "doesn't name any of the main ingredients" not in html
+    assert "Ingredients both have" in html
 
 
 def test_a_mini_size_product_has_no_group_and_cannot_be_compared(shop, client):

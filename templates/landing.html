@@ -6,86 +6,104 @@
 {% block content %}
 
 <section class="hero">
-    <div class="hero-inner">
-        <div class="hero-badge">Skincare Product Intelligence</div>
-        <h1 class="hero-title">
-            Know what is in<br>
-            <em>your skincare</em>
-        </h1>
+    <div class="hero-copy">
+        <span class="eyebrow">Skincare product data</span>
+        <h1 class="hero-title">Know what is in <em>your skincare</em></h1>
         <p class="hero-subtitle">
-            Look up a product, see its ingredients and price per ml,
-            and compare it with others, all in one place.
+            Look up a product, read its ingredients in the brand's own words,
+            see its price in rupees and compare it with another.
         </p>
-        <div class="hero-actions">
-            <a href="{{ url_for('products') }}" class="btn-primary">Search products</a>
-            <a href="{{ url_for('compare') }}" class="btn-ghost">Compare two products</a>
-        </div>
+        <a class="btn-primary hero-cta" href="{{ url_for('products') }}">Browse products</a>
     </div>
     <div class="hero-visual">
-        <div class="mock-card">
-            <div class="mock-card-header">
-                <span class="mock-label">Price per ml · sample</span>
-                <span class="mock-total">By brand</span>
-            </div>
-            <div class="mock-bars">
-                <div class="mock-bar-row">
-                    <span class="mock-cat">Brand D</span>
-                    <div class="mock-bar-track">
-                        <div class="mock-bar" style="width: 90%"></div>
-                    </div>
-                    <span class="mock-amt">31.00</span>
-                </div>
-                <div class="mock-bar-row">
-                    <span class="mock-cat">Brand B</span>
-                    <div class="mock-bar-track">
-                        <div class="mock-bar mock-bar-2" style="width: 71%"></div>
-                    </div>
-                    <span class="mock-amt">24.50</span>
-                </div>
-                <div class="mock-bar-row">
-                    <span class="mock-cat">Brand A</span>
-                    <div class="mock-bar-track">
-                        <div class="mock-bar mock-bar-3" style="width: 52%"></div>
-                    </div>
-                    <span class="mock-amt">17.98</span>
-                </div>
-                <div class="mock-bar-row">
-                    <span class="mock-cat">Brand C</span>
-                    <div class="mock-bar-track">
-                        <div class="mock-bar mock-bar-4" style="width: 35%"></div>
-                    </div>
-                    <span class="mock-amt">12.10</span>
-                </div>
-            </div>
-        </div>
+        <img class="hero-photo" src="{{ url_for('static', filename='img/hero-ibnu-ihza.jpg') }}" width="1600" height="914" alt="Clear gel textures and a cream in small dishes beside green leaves on a peach background" fetchpriority="high" decoding="async">
     </div>
 </section>
 
-<section class="features">
-    <div class="features-inner">
-        <div class="feature-card">
-            <div class="feature-icon">{{ search_icon() }}</div>
-            <h3 class="feature-title">Search any product</h3>
-            <p class="feature-body">Find a product by name or ingredient and see its full ingredient list, price and size in one page.</p>
+{% if categories %}
+<section class="section section-alt" aria-labelledby="categories-title">
+    <div class="section-inner">
+        <div class="section-head">
+            <h2 class="section-heading" id="categories-title">Browse by category</h2>
+            <p class="section-sub">The categories with the most products in the data.</p>
         </div>
-        <div class="feature-card">
-            <div class="feature-icon">{{ compare_icon() }}</div>
-            <h3 class="feature-title">Compare side by side</h3>
-            <p class="feature-body">Line up two products on price per ml and see which ingredients they share and which are unique.</p>
-        </div>
-        <div class="feature-card">
-            <div class="feature-icon">{{ target_icon() }}</div>
-            <h3 class="feature-title">See the bigger picture</h3>
-            <p class="feature-body">Check how brands compare on price and which ingredients show up most often across products.</p>
-        </div>
+        <ul class="category-grid">
+            {% for c in categories %}
+            <li><a class="category-tile" href="{{ url_for('products', category=c.name) }}">
+                <span class="category-name">{{ c.name }}</span>
+                <span class="category-count">{{ '{:,}'.format(c.products) }} products</span>
+            </a></li>
+            {% endfor %}
+        </ul>
     </div>
 </section>
+{% endif %}
 
-<section class="cta-section">
-    <div class="cta-inner">
-        <h2 class="cta-title">Ready to look closer?</h2>
-        <p class="cta-body">Pick a product and see what is really inside.</p>
-        <a href="{{ url_for('products') }}" class="btn-primary">Start exploring</a>
+<div class="photo-band">
+    <img src="{{ url_for('static', filename='img/home-band-toa-heftiba.jpg') }}" width="1600" height="672" alt="" decoding="async">
+</div>
+
+{% if ingredients %}
+<section class="section" aria-labelledby="ingredients-title">
+    <div class="section-inner">
+        <div class="section-head">
+            <h2 class="section-heading" id="ingredients-title">Ingredients at a glance</h2>
+            <p class="section-sub">Short facts from named sources, with links. General information from the sources named. Not medical advice.</p>
+        </div>
+        <ul class="ingredient-grid">
+            {% for i in ingredients %}
+            <li class="ingredient-card">
+                <span class="ingredient-icon" style="--icon: url({{ url_for('static', filename='img/icons/ing-' ~ i.key.replace(' ', '-') ~ '.svg') }})" aria-hidden="true"></span>
+                <h3 class="ingredient-name">{{ i.name }}</h3>
+                <p class="ingredient-what">{{ i.what }}</p>
+                <p class="ingredient-links"><a href="{{ i.sources_url }}">Read the sources</a><a href="{{ i.products_url }}">Products with “{{ i.name | lower }}” in the name</a></p>
+            </li>
+            {% endfor %}
+        </ul>
+        {% if today_strip %}
+        <p class="today-strip"><span class="today-strip-title">Today in {{ today_strip.place }}</span>
+            {% if today_strip.uv is not none %}<span class="today-strip-item">UV now <strong>{{ today_strip.uv }}</strong>{% if today_strip.uv_category %} ({{ today_strip.uv_category }}){% endif %}</span>{% endif %}
+            {% if today_strip.humidity is not none %}<span class="today-strip-item">Humidity <strong>{{ '%.0f' | format(today_strip.humidity) }}%</strong></span>{% endif %}
+            <a class="today-strip-link" href="{{ url_for('today') }}">See today's conditions</a></p>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
+
+<section class="section section-alt" aria-labelledby="how-title">
+    <div class="section-inner">
+        <div class="section-head">
+            <h2 class="section-heading" id="how-title">How Skin Index works</h2>
+        </div>
+        <div class="how-layout">
+        <div class="how-text">
+        <ol class="steps">
+            <li class="step">
+                <span class="step-icon">{{ search_icon() }}</span>
+                <span class="step-label">Step 1</span>
+                <h3 class="step-title">Look up a product</h3>
+                <p class="step-body">Search by name or brand. See the ingredient list as the brand wrote it, the size, the price and the price per ml.</p>
+            </li>
+            <li class="step">
+                <span class="step-icon">{{ compare_icon() }}</span>
+                <span class="step-label">Step 2</span>
+                <h3 class="step-title">Compare two products</h3>
+                <p class="step-body">Pick two products from the same category and main ingredient group and see their numbers side by side, with the ingredients they share.</p>
+            </li>
+            <li class="step">
+                <span class="step-icon">{{ target_icon() }}</span>
+                <span class="step-label">Step 3</span>
+                <h3 class="step-title">Read the context</h3>
+                <p class="step-body">See what shoppers have loved and reviewed, and browse published papers on an ingredient, with a link to each source.</p>
+            </li>
+        </ol>
+        <p class="how-note">Skin Index shows data and sources. It never tells you which product to buy.</p>
+        </div>
+        <div class="mosaic" aria-hidden="true">
+            <img src="{{ url_for('static', filename='img/mosaic-nataliya-melnychuk.jpg') }}" width="1000" height="1245" alt="" decoding="async">
+            <img src="{{ url_for('static', filename='img/mosaic-enecta.jpg') }}" width="1000" height="1250" alt="" decoding="async">
+        </div>
+        </div>
     </div>
 </section>
 

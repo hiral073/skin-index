@@ -135,9 +135,8 @@ def get_product_detail(
 
 @_tool(
     "Put two products side by side: both products' numbers and the ingredients both have, only in A and "
-    "only in B. Two products are compared only when they are in the same comparison group and share a main "
-    "ingredient group (niacinamide, ascorbic acid, retinol, retinal, hyaluronic acid, salicylic acid, glycolic "
-    "acid, lactic acid, azelaic acid, ceramide, peptide); otherwise the answer says why not. No verdict, no "
+    "only in B. Any two products in the same comparison group can be compared; otherwise the answer says why "
+    "not. The main ingredient groups each product is in are listed as information only. No verdict, no "
     "winner, no overlap score."
 )
 def compare_products(
@@ -272,6 +271,60 @@ def check_avoid_list(
     result["message"] = {"not_found": avoid_content.NOT_FOUND,
                          "no_ingredients": avoid_content.NO_INGREDIENTS}.get(result["status"])
     return _answer("products", result, text.NOTES["avoid_list"] + " " + text.NOTES["ingredients"])
+
+
+@_tool(
+    "Two product types of one group side by side, from the same numbers as the Compare page. A type is a "
+    "whole word in the product name (for example 'cream' or 'gel'); products whose names contain both words "
+    "are left out of both sides and counted in `left_out`. Each side has its product count, USD price min "
+    "and max, the review-weighted average rating, the most common ingredients (Water apart) and, for "
+    "the few types with a named source, a short line on what the word usually means. Each type needs at least "
+    "the minimum number of products. With no input, or with a group or type that can't be compared, the "
+    "answer is a plain status and `valid_choices`, the groups and type pairs that can be compared. No "
+    "verdict is made."
+)
+def compare_types(
+    group: Annotated[str, Field(description="Group name, e.g. 'Moisturizers'.")] = "",
+    type_a: Annotated[str, Field(description="First type word, e.g. 'cream'.")] = "",
+    type_b: Annotated[str, Field(description="Second type word, e.g. 'gel'.")] = "",
+):
+    group, type_a, type_b = (_optional_text(v, n) for v, n in ((group, "group"), (type_a, "type_a"), (type_b, "type_b")))
+    type_a, type_b = type_a.lower(), type_b.lower()
+    db = _product_db()
+    listing = services.list_format_types(db_path=db)
+    result = services.compare_types(group, type_a, type_b, db_path=db)
+    status = result["status"]
+    if status != "ok":
+        data = {"status": status, "minimum_products": listing["min_products"],
+                "valid_choices": [{"group": g["name"], "types": [t["key"] for t in g["types"]],
+                                   "pairs": g["pairs"]} for g in listing["groups"]]}
+        if status == "too_few":
+            short = min((result["a"], result["b"]), key=lambda s: s["products"])
+            data["message"] = text.TYPE_MESSAGES["too_few"].format(
+                label=short["label"], n=short["products"], products="product" if short["products"] == 1 else "products",
+                group=result["group"], min=result["min_products"])
+            data["a"] = {"type": result["a"]["key"], "products": result["a"]["products"]}
+            data["b"] = {"type": result["b"]["key"], "products": result["b"]["products"]}
+            data["left_out"] = result["left_out"]["products"]
+        else:
+            data["message"] = text.TYPE_MESSAGES[status]
+        return _answer("products", data, text.NOTES["compare_types"])
+    data = {"status": "ok", "group": result["group"], "minimum_products": result["min_products"],
+            "left_out": {"products": result["left_out"]["products"], "words": result["left_out"]["words"]}}
+    for side in ("a", "b"):
+        s = result[side]
+        data[side] = {
+            "type": s["key"], "word": s["word"], "products": s["products"],
+            "price_usd": s["price"] and {k: s["price"][k] for k in ("min", "max")},
+            "products_path": s["products_path"],
+            "average_rating": s["rating"] and round(s["rating"], 2),
+            "rated_products": s["rated_products"],
+            "most_common_ingredients": s["ingredients"]["top"],
+            "water": s["ingredients"]["water"],
+            "products_with_ingredient_list": s["ingredients"]["products"],
+            "format_line": s["format_line"] and {k: s["format_line"][k] for k in ("text", "source_name", "source_url")},
+        }
+    return _answer("products", data, text.NOTES["compare_types"] + " " + text.NOTES["ingredients"])
 
 
 if __name__ == "__main__":

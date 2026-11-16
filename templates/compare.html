@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_group_options.html" import group_options %}
 {% from "_avoid.html" import result as avoid_result, based_on %}
+{% from "_compare_types_result.html" import types_result %}
 
 {% block title %}Compare · Skin Index{% endblock %}
 
@@ -29,41 +30,101 @@
 {% block content %}
 <section class="compare-page">
     <h1 class="page-title">Compare</h1>
-    <p class="compare-intro">Choose a category and a main ingredient, then two products from it. A product is in a main ingredient group when that ingredient is in its name or among its first {{ top_n }} listed ingredients.</p>
+    {% if mode == 'products' %}
+    <p class="compare-intro">Choose two products from one category. Narrowing by main ingredient is optional. A product is in a main ingredient group when that ingredient is in its name or among its first {{ top_n }} listed ingredients.</p>
+    {% elif mode == 'types' %}
+    <p class="compare-intro">{{ content.INTRO_TYPES }}</p>
+    {% elif group_ok %}
+    <p class="compare-intro">{{ content.INTRO_CHOOSE }}</p>
+    {% else %}
+    <p class="compare-intro">{{ content.INTRO_START }}</p>
+    {% endif %}
 
     {% for message in messages %}
     <p class="notice">{{ message }}</p>
     {% endfor %}
+    {% for line in gentle %}
+    <p class="gentle-note">{{ line }}</p>
+    {% endfor %}
 
     <div class="slot">
         <form class="picker" method="get" action="{{ url_for('compare') }}">
-            <label class="picker-label" for="group">1. Category</label>
+            <label class="picker-label" for="group">{{ content.CATEGORY_LABEL }}</label>
             <select class="form-input" id="group" name="group" data-autosubmit data-resets="ingredient a b">
-                <option value="">Choose a category</option>
+                <option value="">{{ content.CHOOSE_CATEGORY }}</option>
                 {{ group_options(group_sections, group) }}
                 {% if group and group not in groups | map(attribute='name') | list %}
                 <option value="{{ group }}" selected>{{ group }} (1)</option>
                 {% endif %}
             </select>
+            {% if group_ok and mode %}<input type="hidden" name="mode" value="{{ mode }}">{% endif %}
 
-            {% if group %}
-            <label class="picker-label" for="ingredient">2. Main ingredient</label>
+            {% if group_ok and mode == 'products' %}
+            <label class="picker-label" for="ingredient">2. Narrow by main ingredient (optional)</label>
             <select class="form-input" id="ingredient" name="ingredient" data-autosubmit data-resets="a b">
-                <option value="">Choose a main ingredient</option>
+                <option value="">Any</option>
                 {% for i in ingredients %}
-                <option value="{{ i.key }}" {% if i.key == ingredient %}selected{% endif %} {% if i.products < 2 %}disabled{% endif %}>{{ i.label }} ({{ i.products }} product{{ '' if i.products == 1 else 's' }}{% if i.products < 2 %}, too few to compare{% endif %})</option>
+                <option value="{{ i.key }}" {% if i.key == ingredient %}selected{% endif %}>{{ i.label }} ({{ i.products }} products)</option>
+                {% endfor %}
+            </select>
+            {% if options.a %}
+            {{ product_select('a', '3. Product A', options.a, selected.a) }}
+            {{ product_select('b', '4. Product B (same category as A)', options.b, selected.b) }}
+            {% endif %}
+            {% elif group_ok and mode == 'types' %}
+            <label class="picker-label" for="a">{{ content.PICK_A }}</label>
+            <select class="form-input" id="a" name="a" data-autosubmit data-resets="b">
+                <option value="">{{ content.CHOOSE_TYPE }}</option>
+                {% for t in types_page.a_options %}
+                <option value="{{ t.key }}" {% if t.key == types_page.type_a %}selected{% endif %}>{{ t.label }}</option>
+                {% endfor %}
+            </select>
+            {% if types_page.type_a %}
+            <label class="picker-label" for="b">{{ content.PICK_B }}</label>
+            <select class="form-input" id="b" name="b" data-autosubmit>
+                <option value="">{{ content.CHOOSE_TYPE }}</option>
+                {% for t in types_page.b_options %}
+                <option value="{{ t.key }}" {% if t.key == types_page.type_b %}selected{% endif %}>{{ t.label }} ({{ '{:,}'.format(t.products) }} {{ 'product' if t.products == 1 else 'products' }})</option>
                 {% endfor %}
             </select>
             {% endif %}
-
-            {% if group and ingredient and options.a %}
-            {{ product_select('a', '3. Product A', options.a, selected.a) }}
-            {{ product_select('b', '4. Product B (same category and main ingredient as A)', options.b, selected.b) }}
             {% endif %}
 
             <button class="btn-primary" type="submit">Show</button>
         </form>
     </div>
+
+    {% if group_ok and not mode %}
+    <div class="mode-choice">
+        <h2 class="mode-question">{{ content.MODE_QUESTION }}</h2>
+        <div class="mode-cards">
+            <a class="mode-card" href="{{ url_for('compare', mode='products', group=group) }}">
+                <span class="mode-title">{{ content.MODES.products.title }}</span>
+                <span class="mode-example">{{ content.MODES.products.example }}</span>
+            </a>
+            {% if types_available %}
+            <a class="mode-card" href="{{ url_for('compare', mode='types', group=group) }}">
+                <span class="mode-title">{{ content.MODES.types.title }}</span>
+                <span class="mode-example">{{ content.MODES.types.example }}</span>
+            </a>
+            {% else %}
+            <div class="mode-card is-off">
+                <span class="mode-title">{{ content.MODES.types.title }}</span>
+                <span class="mode-example">{{ content.MODES.types.example }}</span>
+                <span class="mode-off">Not available for this category: no pair of types has enough products.</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% elif group_ok and mode %}
+    <p class="mode-switch picker-hint">Comparing: {{ content.MODES[mode].title | lower }}. <a href="{{ url_for('compare', group=group) }}">Compare something else in {{ group }}</a></p>
+    {% endif %}
+
+    {% if types_page and types_page.result and types_page.result.status == 'ok' %}
+    {{ types_result(types_page, rate, content) }}
+    {% elif types_page and group_ok and mode == 'types' and not (types_page.type_a and types_page.type_b) %}
+    <p class="picker-hint">{{ content.WAITING }}</p>
+    {% endif %}
 
     {% if both_shown %}
     {% set a = shown.a %}
@@ -83,7 +144,7 @@
                     <td><a class="product-link" href="{{ url_for('product_detail', id=b.id) }}">{{ b.name }}</a></td></tr>
                 <tr><th scope="row">Brand</th><td>{{ a.brand }}</td><td>{{ b.brand }}</td></tr>
                 <tr><th scope="row">Category</th><td>{{ a.compare_group or na() }}</td><td>{{ b.compare_group or na() }}</td></tr>
-                {% if result.comparable %}
+                {% if result.comparable and shared_label %}
                 <tr><th scope="row">Main ingredient</th><td colspan="2">{{ shared_label }}</td></tr>
                 {% endif %}
                 <tr><th scope="row">Size</th><td>{{ a.size_text or na() }}</td><td>{{ b.size_text or na() }}</td></tr>

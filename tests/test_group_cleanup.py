@@ -202,11 +202,11 @@ def test_products_in_the_same_cleaned_group_can_be_compared_through_a_shared_mai
         assert result["a_group"] == result["b_group"] == group
 
 
-def test_compare_still_needs_the_same_group_and_the_same_main_ingredient(db_path):
+def test_compare_still_needs_the_same_group_but_not_the_same_main_ingredient(db_path):
     p = ids(db_path)
     same_group_other_ingredient = compare_products(p["Shield A"], p["Shield C"], db_path)
-    assert same_group_other_ingredient["status"] == "different_ingredients"
-    assert not same_group_other_ingredient["comparable"]
+    assert same_group_other_ingredient["status"] == "ok"
+    assert same_group_other_ingredient["comparable"]
     for a, b in [("Shield A", "Body Mist SPF"),          # subcategories of one group are not compared together
                  ("Tan Face", "Tan Body"), ("Night Cream", "Day Cream"), ("Shield A", "Shield Plain")]:
         result = compare_products(p[a], p[b], db_path)
@@ -221,7 +221,7 @@ def test_compare_still_needs_the_same_group_and_the_same_main_ingredient(db_path
 
 def test_the_main_ingredient_choices_follow_the_new_group(db_path):
     shared = {g["key"]: g["products"] for g in list_group_ingredients("Sunscreen › Face", db_path)}
-    assert shared == {"niacinamide": 4, "ascorbic-acid": 1}
+    assert shared == {"niacinamide": 4}      # ascorbic acid has one product: not listed
 
 
 # ------------------------------------------------------------------ the dropdowns (UI)
@@ -251,7 +251,7 @@ def test_the_compare_category_dropdown_nests_subcategories_under_their_parent(lo
 
 
 def test_the_compare_page_works_with_a_subcategory_chosen(loaded, client):
-    html = client.get("/compare", query_string={"group": "Sunscreen › Face"}).get_data(as_text=True)
+    html = client.get("/compare", query_string={"group": "Sunscreen › Face", "mode": "products"}).get_data(as_text=True)
     assert '<option value="Sunscreen › Face" selected>Face (5)</option>' in html
     assert "niacinamide (4 products)" in html
 

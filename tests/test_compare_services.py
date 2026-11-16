@@ -55,13 +55,13 @@ def test_same_group_and_main_ingredient_is_comparable_and_returns_both_products(
     ]
 
 
-def test_a_niacinamide_serum_cannot_be_compared_with_a_vitamin_c_serum(db_path):
+def test_a_niacinamide_serum_can_be_compared_with_a_vitamin_c_serum_in_the_same_category(db_path):
     a, b = pair(db_path, [("Water",), ("Niacinamide",)], [("Water",), ("Ascorbic Acid",)])
     result = compare_products(a, b, db_path)
-    assert result["status"] == "different_ingredients" and result["comparable"] is False
-    assert result["a_group"] == result["b_group"] == "Face Serums"          # same category, still refused
+    assert result["status"] == "ok" and result["comparable"] is True
+    assert result["a_group"] == result["b_group"] == "Face Serums"          # same category: compared whatever the main ingredient
     assert (result["a_main"], result["b_main"], result["shared_main"]) == (["niacinamide"], ["ascorbic-acid"], [])
-    assert result["ingredients"] is None
+    assert result["ingredients"] is not None and result["ingredients"]["shared"] == ["Water"]
 
 
 def test_a_product_in_several_main_groups_is_comparable_through_a_shared_one(db_path):
@@ -71,12 +71,12 @@ def test_a_product_in_several_main_groups_is_comparable_through_a_shared_one(db_
     assert result["shared_main"] == ["hyaluronic-acid"] and result["comparable"] is True
 
 
-def test_a_product_in_no_main_group_is_not_compared(db_path):
+def test_a_product_in_no_main_group_is_still_compared_in_its_category(db_path):
     a, b = pair(db_path, [("Water",), ("Glycerin",)], [("Niacinamide",)])
     for x, y in ((a, b), (b, a)):
         result = compare_products(x, y, db_path)
-        assert result["status"] == "no_main_ingredient" and result["comparable"] is False
-        assert result["ingredients"] is None
+        assert result["status"] == "ok" and result["comparable"] is True
+        assert result["ingredients"] is not None
     assert compare_products(a, b, db_path)["a_main"] == []
 
 
@@ -86,11 +86,12 @@ def test_the_main_ingredient_counts_when_it_is_in_the_name_not_the_ingredients(d
     assert compare_products(a, b, db_path)["comparable"] is True
 
 
-def test_a_main_ingredient_below_the_first_ten_does_not_count(db_path):
+def test_a_main_ingredient_below_the_first_ten_does_not_count_as_a_main_group(db_path):
     filler = [(f"Filler {i}",) for i in range(10)]
     a = add(db_path, "Deep", ingredients=filler + [("Niacinamide",)])
     b = add(db_path, "Shallow", ingredients=[("Niacinamide",)])
-    assert compare_products(a, b, db_path)["status"] == "no_main_ingredient"
+    result = compare_products(a, b, db_path)
+    assert result["a_main"] == [] and result["b_main"] == ["niacinamide"] and result["status"] == "ok"
 
 
 def test_shared_only_a_and_only_b_ingredient_lists(db_path):
@@ -215,8 +216,7 @@ def test_the_main_ingredients_of_a_group_are_counted_in_the_order_of_the_content
     add(db_path, "P1", ingredients=[("Water",)])                                  # in no main group
     add(db_path, "Other group", group="Moisturizers", ingredients=[("Ceramide NP",)])
     assert list_group_ingredients("Face Serums", db_path) == [
-        {"key": "niacinamide", "label": "niacinamide", "products": 2},
-        {"key": "ascorbic-acid", "label": "ascorbic acid", "products": 1},                # one product: too few
+        {"key": "niacinamide", "label": "niacinamide", "products": 2},                    # ascorbic acid has one product: not listed
     ]
     assert list_group_ingredients("Nope", db_path) == []
 

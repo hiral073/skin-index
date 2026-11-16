@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_group_options.html" import group_options %}
+{% from "_cards.html" import product_art %}
 
 {% block title %}Insights · Skin Index{% endblock %}
 
@@ -36,9 +37,17 @@
 
 {% block content %}
 <section class="insights-page">
-    <h1 class="page-title">Insights</h1>
-    <p class="compare-intro">What shoppers like and review on one retailer's site, and which ingredients are common. Everything here is worked out from the products in this app.</p>
-
+<header class="page-banner">
+    <div class="banner-inner">
+        <div class="banner-copy">
+            <span class="eyebrow">Shopper engagement</span>
+            <h1 class="page-title">Insights</h1>
+            <p class="banner-sub compare-intro">What shoppers like and review on one retailer's site, and which ingredients are common. Everything here is worked out from the products in this app.</p>
+        </div>
+        <div class="banner-media"><img src="{{ url_for('static', filename='img/insights-content-pixie.jpg') }}" width="1600" height="1067" alt="" style="object-position: 50% 35%" loading="eager" decoding="async"></div>
+    </div>
+</header>
+<div class="page-body">
     <form class="filter-bar" method="get" action="{{ url_for('insights') }}">
         <label class="picker-label" for="group">Product type</label>
         <select class="form-input" id="group" name="group" data-autosubmit>
@@ -51,11 +60,12 @@
 
     {% if message %}<p class="notice">{{ message }}</p>{% endif %}
 
-    <div class="tiles">
+    <div class="tiles tiles-overview">
         <div class="tile"><div class="tile-label">Products</div><div class="tile-value">{{ '{:,}'.format(overview.products) }}</div></div>
         <div class="tile"><div class="tile-label">Brands</div><div class="tile-value">{{ '{:,}'.format(overview.brands) }}</div></div>
     </div>
 
+    <div class="panel">
     <h2 class="section-title">Most liked brands</h2>
     {% if brands %}
     <p class="chart-legend">Brands ranked by the total number of likes across all their products. The rating is the average over the brand's rated products, weighted by how many reviews each has.</p>
@@ -72,7 +82,9 @@
     {% else %}
     {{ not_enough() }}
     {% endif %}
+    </div>
 
+    <div class="panel">
     <h2 class="section-title">Most liked products{% if group %} in {{ group }}{% endif %}</h2>
     {% if loved_products %}
     <div class="table-wrap">
@@ -83,7 +95,7 @@
             <tbody>
                 {% for p in loved_products %}
                 <tr>
-                    <td><a class="product-link" href="{{ url_for('product_detail', id=p.id) }}">{{ p.name }}</a></td>
+                    <td><div class="product-cell">{{ product_art(p.compare_group) }}<div class="product-cell-text"><a class="product-link" href="{{ url_for('product_detail', id=p.id) }}">{{ p.name }}</a></div></div></td>
                     <td>{{ p.brand }}</td>
                     <td class="num">{{ usd_inr(p.price, p.price_inr) }}</td>
                     <td>{{ rating_text(p.rating, p.reviews) }}</td>
@@ -96,8 +108,10 @@
     {% else %}
     {{ not_enough() }}
     {% endif %}
+    </div>
 
     {% if group %}
+    <div class="panel">
     <h2 class="section-title">Well-reviewed and lower price per ml in {{ group }}</h2>
     <p class="chart-legend">Products with at least {{ config.well_reviewed_min_reviews }} reviews and a rating of at least {{ '%.1f' | format(config.well_reviewed_min_rating) }}, sorted by price per ml from lowest.
         {% if well_reviewed and well_reviewed.qualifying_products %}{{ well_reviewed.qualifying_products }} products in {{ group }} meet both.{% endif %}</p>
@@ -123,7 +137,9 @@
     {% else %}
     {{ not_enough() }}
     {% endif %}
+    </div>
 
+    <div class="panel">
     <h2 class="section-title">Price per ml and rating in {{ group }}</h2>
     <p class="chart-legend">Products with a price per ml and at least {{ config.band_min_reviews }} reviews are split into three equal-size bands by price per ml. Each bar is the review-weighted average rating of the band, on a scale from 0 to 5.</p>
     {% if price_bands and price_bands.enough %}
@@ -141,11 +157,15 @@
     {{ not_enough() }}
     <p class="chart-note">At least {{ config.band_min_products }} products with a price per ml and {{ config.band_min_reviews }} or more reviews are needed.</p>
     {% endif %}
+    </div>
     {% endif %}
 
+    <div class="panel">
     <h2 class="section-title">Common ingredients{% if group %} in {{ group }}{% endif %}</h2>
     {{ ingredient_chart(ingredients) }}
+    </div>
 
+    <div class="panel">
     <h2 class="section-title">Key takeaways</h2>
     {% if takeaways %}
     <ul class="takeaways">
@@ -154,7 +174,9 @@
     {% else %}
     {{ not_enough() }}
     {% endif %}
+    </div>
 
+    <div class="panel">
     <h2 class="section-title">How to read this</h2>
     <ul class="how-to-read">
         <li>Likes, reviews and ratings show shopper engagement on one retailer's website. They are not sales figures.</li>
@@ -162,8 +184,11 @@
         <li>Ratings with few reviews are ignored: the well-reviewed list needs at least {{ config.well_reviewed_min_reviews }} reviews and the price bands need at least {{ config.band_min_reviews }}. Brand averages are weighted by review count.</li>
         <li>Prices are US prices{% if rate %} converted at the rate shown below{% endif %} and are approximate.</li>
     </ul>
+    </div>
+
     {% if rate %}
     <p class="rate-note">Converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}). Approximate, not Indian retail prices.{% if rate.stale %} (older rate){% endif %}</p>
     {% endif %}
+</div>
 </section>
 {% endblock %}

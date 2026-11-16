@@ -1,16 +1,19 @@
 {% extends "base.html" %}
 {% from "_group_options.html" import group_options %}
 {% from "_avoid.html" import filter_section, row_tag, based_on %}
+{% from "_cards.html" import product_art, stats %}
 
 {% block title %}Products · Skin Index{% endblock %}
 
 {% block content %}
 <section class="products-page">
     <h1 class="page-title">Products</h1>
+    <p class="page-intro">Search the March 2023 Sephora US snapshot by product name or brand.</p>
 
     <form class="filter-bar" method="get" action="{{ url_for('products') }}">
         <input class="form-input filter-search" type="search" name="q" value="{{ q }}"
                placeholder="Search by product or brand" aria-label="Search products">
+        {% for key, value in type_args.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
         <select class="form-input" name="category" aria-label="Category">
             <option value="">All categories</option>
             {{ group_options(category_sections, category) }}
@@ -22,10 +25,14 @@
             {% endfor %}
         </select>
         <button class="btn-primary" type="submit">Search</button>
-        {% if q or category or sort != 'name' or hide %}
+        {% if q or category or sort != 'name' or hide or type_chip %}
         <a class="btn-ghost" href="{{ url_for('products') }}">Clear</a>
         {% endif %}
     </form>
+
+    {% if type_chip %}
+    <p class="active-filters"><a class="filter-chip" href="{{ type_remove_url }}" title="Whole-word match on the product name; names with both words are left out" aria-label="Remove filter {{ type_chip }}">{{ type_chip }} <span class="chip-x" aria-hidden="true"></span></a></p>
+    {% endif %}
 
     {% if products %}
     <p class="results-count">{{ total }} product{{ '' if total == 1 else 's' }} · page {{ page }} of {{ pages }}</p>
@@ -45,7 +52,7 @@
             <tbody>
                 {% for p in products %}
                 <tr>
-                    <td><a class="product-link" href="{{ url_for('product_detail', id=p['id'], **detail_args) }}">{{ p['name'] }}</a> <a class="row-compare" href="{{ url_for('compare', a=p['id']) }}">Compare</a>{{ row_tag(avoid_checks.get(p['id']), avoid) }}</td>
+                    <td><div class="product-cell">{{ product_art(p['compare_group']) }}<div class="product-cell-text"><a class="product-link" href="{{ url_for('product_detail', id=p['id'], **detail_args) }}">{{ p['name'] }}</a> <a class="row-compare" href="{{ url_for('compare', a=p['id']) }}">Compare</a><span class="product-meta">{{ stats(p['rating'], p['loves_count']) }}</span>{{ row_tag(avoid_checks.get(p['id']), avoid) }}</div></div></td>
                     <td>{{ p['brand'] }}</td>
                     <td>{{ p['compare_group'] or '—' }}</td>
                     <td>{{ p['size_text'] }}</td>

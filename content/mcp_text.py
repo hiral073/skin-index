@@ -23,6 +23,19 @@ NOTES = {
                    "Check the product label. No match only means nothing on the list was found. "
                    "The words are used for this one call and are not stored."),
     "ingredients": "Patch-test new products and see a dermatologist with any concern.",
+    "compare_types": ("A type is a word in the product name (whole word, capital letters ignored), not a tested "
+                      "formulation. Products whose names contain both words are left out of both sides. The two "
+                      "types can have different numbers of products, so compare the shares and "
+                      "averages, not the totals. Ratings come from one retailer's site as of March 2023. "
+                      "General information from the sources named. Not medical advice."),
+}
+
+TYPE_MESSAGES = {
+    "waiting": "Choose a group and two different types from valid_choices.",
+    "unknown": "That group or type can't be compared here. valid_choices lists the groups and types that can.",
+    "same_type": "Choose two different types from valid_choices.",
+    "too_few": ("{label} has {n} {products} in {group}, fewer than the {min} needed, so these two types "
+                "can't be compared here. valid_choices lists the pairs that can."),
 }
 
 COMPARE_MESSAGES = {
@@ -30,10 +43,7 @@ COMPARE_MESSAGES = {
     "same_product": "Both ids are the same product, so there is nothing to compare.",
     "no_group": "A product has no comparison group, so they can't be compared fairly.",
     "different_groups": "Product A is in {a_group} and product B is in {b_group}, so they can't be compared fairly.",
-    "no_main_ingredient": "A product is in no main ingredient group, so they can't be compared here.",
-    "different_ingredients": ("Product A is grouped under {a_main} and product B under {b_main}, so they "
-                              "can't be compared here: they share no main ingredient group."),
-    "ok": "Compared within {a_group}, sharing the main ingredient group: {shared}.",
+    "ok": "Compared within {a_group}.",
 }
 
 MESSAGES = {

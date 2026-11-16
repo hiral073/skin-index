@@ -7,13 +7,23 @@
 
 {% block content %}
 <section class="detail-page">
-    <a class="back-link" href="{{ back_url }}"><span class="arrow arrow-left" aria-hidden="true"></span>Back to results</a>
-
-    <header class="detail-header">
-        <h1 class="page-title">{{ product.name }}</h1>
-        <p class="detail-sub">{{ product.brand }} · {{ product.category or na() }}</p>
-    </header>
-
+<header class="page-banner">
+    <div class="banner-inner">
+        <div class="banner-copy">
+            <a class="back-link" href="{{ back_url }}"><span class="arrow arrow-left" aria-hidden="true"></span>Back to results</a>
+            <div class="detail-header">
+                <span class="eyebrow">{{ product.brand }}</span>
+                <h1 class="page-title">{{ product.name }}</h1>
+                <p class="detail-sub">{{ product.brand }} · {{ product.category or na() }}</p>
+            </div>
+        </div>
+        {# decoration only: a general skincare photo, not a picture of this product #}
+        <div class="banner-media"><img src="{{ url_for('static', filename='img/hero-ibnu-ihza.jpg') }}" width="1600" height="914" alt="" loading="eager" decoding="async" style="object-position: 60% 50%"></div>
+    </div>
+</header>
+<div class="page-body">
+  <div class="detail-layout">
+   <div class="detail-side">
     <dl class="fact-grid">
         <div class="fact">
             <dt>Size</dt>
@@ -46,6 +56,8 @@
     {% endif %}
 
     <p class="compare-cta"><a class="btn-ghost" href="{{ url_for('compare', a=product.id) }}">Compare with another product</a></p>
+   </div>
+   <div class="detail-main">
 
     {% if avoid_check and avoid_check.status != 'no_list' %}
     <section class="avoid-detail" aria-labelledby="avoid-detail-title">
@@ -75,5 +87,8 @@
     {% if science_links %}
     <p class="science-links">{% for link in science_links %}<a class="btn-ghost" href="{{ link.url }}">{{ link.label }}</a> {% endfor %}</p>
     {% endif %}
+   </div>
+  </div>
+</div>
 </section>
 {% endblock %}

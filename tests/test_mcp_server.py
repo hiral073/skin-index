@@ -17,7 +17,7 @@ from mcp_server import server
 
 EXPECTED_TOOLS = {
     "search_products", "get_product_detail", "compare_products", "get_insights",
-    "list_groups", "get_weather", "find_studies", "check_avoid_list",
+    "list_groups", "get_weather", "find_studies", "check_avoid_list", "compare_types",
 }
 
 # Our own wording must never use these (paper titles and product names are the source's own text)
@@ -224,15 +224,15 @@ def test_compare_different_groups_is_refused_with_basic_facts_only(shop):
     assert "rating" not in data["a"] and "loves_count" not in data["b"]
 
 
-def test_compare_same_group_without_a_shared_main_ingredient_is_refused(shop):
+def test_compare_same_group_without_a_shared_main_ingredient_is_compared(shop):
     data = server.compare_products(shop["n1"], shop["c1"])["data"]
-    assert data["comparable"] is False and data["status"] == "different_ingredients"
-    assert "share no main ingredient group" in data["message"]
+    assert data["comparable"] is True and data["status"] == "ok"
+    assert "share no main ingredient group" not in data["message"]
 
 
-def test_compare_a_product_in_no_main_ingredient_group_is_refused(shop):
+def test_compare_a_product_in_no_main_ingredient_group_is_compared(shop):
     data = server.compare_products(shop["n1"], shop["f1"])["data"]
-    assert data["status"] == "no_main_ingredient"
+    assert data["status"] == "ok"
 
 
 def test_compare_same_product_and_bad_ids(shop):

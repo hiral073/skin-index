@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block footer_note %}{# this page carries the same note itself #}{% endblock %}
 
 {% block title %}Today · Skin Index{% endblock %}
 
@@ -16,8 +17,17 @@
 
 {% block content %}
 <section class="today-page">
-    <h1 class="page-title">Today</h1>
-    <p class="compare-intro">Live conditions for a city, shown as general information.</p>
+<header class="page-banner">
+    <div class="banner-inner">
+        <div class="banner-copy">
+            <span class="eyebrow">Live conditions</span>
+            <h1 class="page-title">Today</h1>
+            <p class="banner-sub compare-intro">Live conditions for a city, shown as general information.</p>
+        </div>
+        <div class="banner-media"><img src="{{ url_for('static', filename='img/today-kadarius-seegars.jpg') }}" width="1600" height="960" alt="" style="object-position: 50% 50%" loading="eager" decoding="async"></div>
+    </div>
+</header>
+<div class="page-body">
 
     <form class="filter-bar" method="get" action="{{ url_for('today') }}">
         <label class="picker-label" for="city">City</label>
@@ -51,7 +61,7 @@
 
     {% set uv = data.uv %}
     {% set aqi = data.aqi %}
-    <div class="tiles">
+    <div class="tiles tiles-today">
         {{ tile('UV now', uv.now if uv and uv.now is not none else na(), uv.now_category if uv and uv.now is not none else '') }}
         {{ tile("UV today's max", uv.max if uv and uv.max is not none else na(), uv.max_category if uv and uv.max is not none else '') }}
         {{ tile('Humidity', ('%.0f' | format(data.humidity)) ~ '%' if data.humidity is not none else na(), '') }}
@@ -68,7 +78,9 @@
     {% endif %}
 
     {% if place and data.status in ('ok', 'unavailable') %}
+    <div class="today-blocks">
     {% if tip_cards %}
+    <div class="today-block">
     <h2 class="section-title">{{ content.TIPS_CARD_TITLE }}</h2>
     <div class="guidance" id="weather-tips">
         {% for card in tip_cards %}
@@ -81,8 +93,10 @@
         {% endif %}
         {% endfor %}
     </div>
+    </div>
     {% endif %}
 
+    <div class="today-block">
     <h2 class="section-title">{{ content.SUN_PROTECTION.title }}</h2>
     <div class="guidance" id="sun-protection">
         {% if data.guidance.uv_card == 'full' %}
@@ -109,6 +123,8 @@
         <p>{{ content.TIMELINE.no_uv }}</p>
         {% endif %}
     </div>
+    </div>
+    </div>
 
     <p class="picker-hint sources-note">{{ content.SOURCES_NOTE }}</p>
     {% endif %}
@@ -117,5 +133,6 @@
     <p class="attribution">Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a>.
         Air quality data from CAMS (Copernicus Atmosphere Monitoring Service), via Open-Meteo.com.
         Location data from <a href="https://www.geonames.org/">GeoNames</a>.</p>
+</div>
 </section>
 {% endblock %}
