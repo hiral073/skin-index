@@ -17,7 +17,7 @@ from mcp_server import server
 
 EXPECTED_TOOLS = {
     "search_products", "get_product_detail", "compare_products", "get_insights",
-    "list_groups", "get_weather", "find_studies", "check_avoid_list",
+    "list_groups", "get_weather", "find_studies", "check_avoid_list", "compare_types",
 }
 
 # Our own wording must never use these (paper titles and product names are the source's own text)
