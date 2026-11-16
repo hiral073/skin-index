@@ -90,9 +90,27 @@ def group_sections(entries, all_option=False):
     return sections
 
 
+HOME_CATEGORIES = 8   # category tiles on the home page
+HOME_LOVED = 6        # products in the "Most loved" row
+
+
 @app.route("/")
 def landing():
-    return render_template("landing.html")
+    db = app.config["DATABASE"]
+    by_parent = {}
+    for group in list_groups(db):
+        parent = split_group(group["name"])[0]
+        by_parent[parent] = by_parent.get(parent, 0) + group["products"]
+    categories = [
+        {"name": name, "products": n}
+        for name, n in sorted(by_parent.items(), key=lambda item: (-item[1], item[0].casefold()))[:HOME_CATEGORIES]
+    ]
+    rate = get_usd_inr_rate(db)  # None: the cards show US dollars
+    loved = [
+        {**p, "price_inr": inr_price(p["price"], rate.rate) if rate and p["price"] is not None else None}
+        for p in get_insights(None, db)["loved_products"][:HOME_LOVED]
+    ]
+    return render_template("landing.html", categories=categories, loved=loved, rate=rate)
 
 
 def list_args(q, category, sort, page, hide=False):

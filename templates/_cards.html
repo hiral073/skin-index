@@ -1,0 +1,11 @@
+{% from "_icons.html" import heart_icon, star_icon %}
+{# Product pieces shared by the home page and the product list. No product picture is used:
+   the brand tile is a soft colour with the brand's first letter. #}
+
+{% macro brand_tile(brand) %}{% set initial = (brand or '?')[:1] | upper %}<span class="brand-tile tone-{{ 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.find(initial) % 6 }}" aria-hidden="true">{{ initial }}</span>{% endmacro %}
+
+{# Rating and loves as plain numbers; a missing value is left out, never shown as zero #}
+{% macro stats(rating, loves) %}
+{% if rating is not none %}<span class="stat">{{ star_icon() }}<span><span class="visually-hidden">Rating </span>{{ '%.1f' | format(rating) }}</span></span>{% endif %}
+{% if loves is not none %}<span class="stat">{{ heart_icon() }}<span>{{ '{:,}'.format(loves) }} loves</span></span>{% endif %}
+{% endmacro %}

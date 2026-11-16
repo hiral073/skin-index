@@ -11,3 +11,7 @@ __pycache__/
 .pytest_cache/
 .claude/plans/
 tools/
+
+# Original photo downloads (1-6 MB each); only the resized files in static/img are committed
+static/img/*-unsplash.jpg
+.playwright-mcp/

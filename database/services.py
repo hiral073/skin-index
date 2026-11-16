@@ -141,7 +141,7 @@ FILTER_SQL = """
 """
 COUNT_SQL = "SELECT COUNT(*) " + FILTER_SQL
 PRODUCTS_SQL = (
-    "SELECT id, name, brand, compare_group, price, size_text, ingredients_text "
+    "SELECT id, name, brand, compare_group, price, size_text, loves_count, rating, ingredients_text "
     + FILTER_SQL
     + """
     ORDER BY

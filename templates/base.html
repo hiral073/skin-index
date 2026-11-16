@@ -7,11 +7,13 @@
     <title>{% block title %}Skin Index{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <noscript><style>.nav-links { display: flex !important; }</style></noscript>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     {% block head %}{% endblock %}
 </head>
 <body>
+    <a class="skip-link" href="#main">Skip to content</a>
 
     <nav class="navbar">
         <div class="nav-inner">
@@ -19,7 +21,7 @@
                 {{ brand_icon() }}
                 <span class="brand-name">Skin Index</span>
             </a>
-            <div class="nav-links">
+            <div class="nav-links" id="site-menu">
                 <a href="{{ url_for('products') }}">Products</a>
                 <a href="{{ url_for('compare') }}">Compare</a>
                 <a href="{{ url_for('insights') }}">Insights</a>
@@ -29,17 +31,28 @@
         </div>
     </nav>
 
-    <main class="main-content">
+    <main class="main-content" id="main">
         {% block content %}{% endblock %}
     </main>
 
     <footer class="footer">
         <div class="footer-inner">
-            {{ brand_icon() }}
-            <span class="footer-name">Skin Index</span>
-            <p class="footer-copy">Understand what is in your skincare, and who is selling it.</p>
-            <p class="footer-heading">Learn more</p>
-            <a class="footer-link" href="{{ url_for('science') }}">Ingredient Science</a>
+            <div class="footer-brand">
+                <span class="footer-logo">{{ brand_icon() }}<span class="footer-name">Skin Index</span></span>
+                <p class="footer-copy">Understand what is in your skincare, and who is selling it.</p>
+            </div>
+            <div class="footer-col">
+                <p class="footer-heading">Learn more</p>
+                <a class="footer-link" href="{{ url_for('science') }}">Ingredient Science</a>
+            </div>
+            <div class="footer-col">
+                <p class="footer-heading">Photo credits</p>
+                <p class="footer-credit">Home page photo by Ibnu Ihza on <a class="footer-link" href="https://unsplash.com/photos/g6q3lFAe3kA" rel="noopener">Unsplash</a></p>
+            </div>
+        </div>
+        <div class="footer-base">
+            {% block footer_note %}<p class="footer-note">General information from the sources named. Not medical advice.</p>{% endblock %}
+            <p class="footer-note">Product data is a March 2023 Sephora US snapshot. Prices, likes and ratings are as of then.</p>
         </div>
     </footer>
 

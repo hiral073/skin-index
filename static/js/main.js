@@ -15,3 +15,33 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 });
+
+// Mobile menu: this script adds the menu button, so without JavaScript the links are simply always shown.
+document.addEventListener("DOMContentLoaded", function () {
+    var bar = document.querySelector(".navbar");
+    var links = document.getElementById("site-menu");
+    if (!bar || !links) {
+        return;
+    }
+    var toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "nav-toggle";
+    toggle.setAttribute("aria-label", "Menu");
+    toggle.setAttribute("aria-controls", "site-menu");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.innerHTML = '<span class="nav-toggle-bar" aria-hidden="true"></span>';
+    links.parentNode.insertBefore(toggle, links);
+    function setOpen(open) {
+        bar.classList.toggle("is-open", open);
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    toggle.addEventListener("click", function () {
+        setOpen(toggle.getAttribute("aria-expanded") !== "true");
+    });
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
+            setOpen(false);
+            toggle.focus();
+        }
+    });
+});
