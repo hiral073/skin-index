@@ -1,0 +1,66 @@
+{# The "two product types" result: two columns with the product counts in large type, then the fixed lines #}
+{% macro na() %}<span class="not-available">Not available</span>{% endmacro %}
+
+{% macro count_text(n) %}{{ '{:,}'.format(n) }} {{ 'product' if n == 1 else 'products' }}{% endmacro %}
+
+{% macro side_card(side, rupees, content) %}
+<article class="type-card">
+    <h2 class="type-name">{{ side.label }}</h2>
+    <p class="type-count"><strong>{{ count_text(side.products) }}</strong></p>
+
+    <p class="type-format"><span class="type-label">{{ content.FORMAT_LABEL }}</span>
+    {% if side.format_line %}
+        {{ side.format_line.text }}
+        <span class="card-source">{{ content.SOURCE_LINE_LABEL }}: <a href="{{ side.format_line.source_url }}" rel="noopener">{{ side.format_line.source_name }}</a></span>
+    {% else %}
+        <span class="picker-hint">{{ content.NO_FORMAT_LINE }}</span>
+    {% endif %}
+    </p>
+
+    <dl class="type-facts">
+        <div class="fact-row"><dt>Typical price (median)</dt>
+            <dd>{% if side.price %}{% if rupees %}≈ ₹{{ '{:,}'.format(rupees.median) }} <span class="inr">(${{ '%.2f' | format(side.price.median) }})</span>{% else %}${{ '%.2f' | format(side.price.median) }}{% endif %}{% else %}{{ na() }}{% endif %}</dd></div>
+        <div class="fact-row"><dt>Price range</dt>
+            <dd>{% if side.price %}{% if rupees %}≈ ₹{{ '{:,}'.format(rupees.min) }} to ₹{{ '{:,}'.format(rupees.max) }} <span class="inr">(${{ '%.2f' | format(side.price.min) }} to ${{ '%.2f' | format(side.price.max) }})</span>{% else %}${{ '%.2f' | format(side.price.min) }} to ${{ '%.2f' | format(side.price.max) }}{% endif %}{% else %}{{ na() }}{% endif %}</dd></div>
+        <div class="fact-row"><dt>Average rating</dt>
+            <dd>{% if side.rating is not none %}{{ '%.2f' | format(side.rating) }} <span class="inr">from {{ '{:,}'.format(side.rated_products) }} rated {{ 'product' if side.rated_products == 1 else 'products' }}</span>{% else %}{{ na() }}{% endif %}</dd></div>
+    </dl>
+
+    <h3 class="type-sub">Most common ingredients</h3>
+    {% if side.ingredients.top %}
+    <ol class="type-ingredients">
+        {% for i in side.ingredients.top %}
+        <li><span class="ing-name">{{ i.name }}</span>
+            <span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width: {{ '%.1f' | format(i.share_percent) }}%"></span></span>
+            <span class="ing-share"><strong>{{ '%.0f' | format(i.share_percent) }}%</strong> <span class="bar-n">{{ '{:,}'.format(i.products) }} of {{ '{:,}'.format(side.ingredients.products) }}</span></span></li>
+        {% endfor %}
+    </ol>
+    <p class="picker-hint">Water is in {{ '%.0f' | format(side.ingredients.water.share_percent) }}% of these products ({{ '{:,}'.format(side.ingredients.water.products) }} of {{ '{:,}'.format(side.ingredients.products) }}).</p>
+    {% else %}
+    <p class="picker-hint">Not enough data.</p>
+    {% endif %}
+</article>
+{% endmacro %}
+
+{% macro types_result(tp, rate, content) %}
+{% set result = tp.result %}
+<div class="types-result">
+    {{ side_card(result.a, tp.rupees.a, content) }}
+    {{ side_card(result.b, tp.rupees.b, content) }}
+</div>
+
+<div class="types-notes">
+    <p class="type-left-out">{{ content.LEFT_OUT.format(n=result.left_out.products, products='product' if result.left_out.products == 1 else 'products') }}</p>
+    {% if tp.different_sizes %}<p class="type-sizes">{{ content.DIFFERENT_SIZES }}</p>{% endif %}
+    <p class="picker-hint">{{ content.READING_NOTE }}</p>
+    <p class="picker-hint">{{ content.ENGAGEMENT_NOTE }}</p>
+    <p class="picker-hint">{{ content.INGREDIENT_NOTE }}</p>
+    {% if rate %}
+    <p class="rate-note">Converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}). Approximate, not Indian retail prices.{% if rate.stale %} (older rate){% endif %}</p>
+    {% else %}
+    <p class="rate-note">Rupee prices are not available right now, so US dollar prices are shown.</p>
+    {% endif %}
+    <p class="picker-hint">{{ content.PATCH_NOTE }}</p>
+    <p class="picker-hint">{{ content.SOURCES_NOTE }}</p>
+</div>
+{% endmacro %}

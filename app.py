@@ -9,14 +9,15 @@ from flask import Flask, abort, redirect, render_template, request, url_for
 from content import avoid_list as avoid_content
 from content import ingredient_cards as cards_content
 from content import main_ingredients as main_ingredients_content
+from content import product_types as types_content
 from content import science as science_content
 from content import today_tips as today_content
 from content.compare_groups import GROUP_SEPARATOR, split_group
 from database.db import DB_PATH, get_db
 from database.services import (
-    CATEGORIES_SQL, COUNT_SQL, MAIN_INGREDIENT_LABELS, PRODUCTS_SQL, TODAY_CONFIG, check_avoid_list, clean_avoid_terms, compare_products, escape_like, get_insights,
+    CATEGORIES_SQL, COUNT_SQL, MAIN_INGREDIENT_LABELS, PRODUCTS_SQL, TODAY_CONFIG, check_avoid_list, clean_avoid_terms, compare_products, compare_types as compare_types_data, escape_like, get_insights,
     get_ingredient_card, get_ingredient_glance, get_product_detail, get_today_conditions, get_usd_inr_rate, group_papers, inr_per_ml,
-    inr_price, list_group_ingredients, list_groups, list_products_in_group,
+    inr_price, list_format_types, list_group_ingredients, list_groups, list_products_in_group,
     main_ingredients_of, search_research, split_ingredients_text,
 )
 
@@ -312,13 +313,35 @@ def join_labels(keys):
     return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
 
 
+def join_names(names):
+    """'a', 'a and b', 'a, b and c' for a plain list of names."""
+    names = list(names)
+    if len(names) <= 1:
+        return "".join(names)
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
 @app.route("/compare")
 def compare():
+    """One Compare page: choose a category, then compare two specific products or two product types."""
     db_path = app.config["DATABASE"]
     args = request.args
-    raw_group = args.get("group", "")
+    raw_group = args.get("group", "").strip()
+    raw_mode = args.get("mode", "").strip()
     raw_ingredient = args.get("ingredient", "")
-    ids = {"a": parse_product_id(args.get("a")), "b": parse_product_id(args.get("b"))}
+    raw_a, raw_b = args.get("a", "").strip(), args.get("b", "").strip()
+    groups = list_groups(db_path)
+    group_sizes = {g["name"]: g["products"] for g in groups}
+
+    # Two product types are chosen by word (a and b are words); two products by id. A link that
+    # only has product ids (the detail page, the product list) is the products mode.
+    mode = raw_mode if raw_mode in ("products", "types") else ""
+    if not mode and (parse_product_id(raw_a) or parse_product_id(raw_b) or raw_ingredient):
+        mode = "products"
+    if mode == "types":
+        return compare_types_page(db_path, groups, group_sizes, raw_group, raw_a, raw_b)
+
+    ids = {"a": parse_product_id(raw_a), "b": parse_product_id(raw_b)}
     result = compare_products(ids["a"], ids["b"], db_path)
 
     # A product left over from an earlier choice of category or main ingredient (a form sent
@@ -327,7 +350,7 @@ def compare():
         product = result[side]
         return product is not None and (
             (raw_group and product["compare_group"] != raw_group)
-            or (raw_ingredient and raw_ingredient not in result[f"{side}_main"])
+            or (raw_ingredient in MAIN_INGREDIENT_LABELS and raw_ingredient not in result[f"{side}_main"])
         )
 
     if stale("a") or stale("b"):
@@ -338,25 +361,16 @@ def compare():
     shown = {side: result[side] for side in ("a", "b")}
     if result["status"] == "same_product":
         shown["b"] = None
-    anchor_side = "a" if shown["a"] else "b" if shown["b"] else None
-    anchor = shown[anchor_side] if anchor_side else None
-    anchor_main = result[f"{anchor_side}_main"] if anchor_side else []
+    anchor = shown["a"] or shown["b"]
 
-    groups = list_groups(db_path)
-    group_sizes = {g["name"]: g["products"] for g in groups}
     group = anchor["compare_group"] if anchor else (raw_group if raw_group in group_sizes else None)
     group = group or None
+    if anchor:
+        mode = "products"
 
-    ingredients = []
-    if group:
-        ingredients = [i for i in list_group_ingredients(group, db_path) if not anchor or i["key"] in anchor_main]
-    keys = {i["key"] for i in ingredients}
-    ingredient = raw_ingredient if raw_ingredient in keys else ""
-    if not ingredient and result["status"] == "ok" and result["shared_main"]:
-        ingredient = result["shared_main"][0]
-    if not ingredient and anchor and len(ingredients) == 1:
-        ingredient = ingredients[0]["key"]
-    ingredient_products = {i["key"]: i["products"] for i in ingredients}
+    # The main ingredient only narrows the product lists; groups with fewer than 2 products are not offered
+    ingredients = list_group_ingredients(group, db_path) if group in group_sizes else []
+    ingredient = raw_ingredient if raw_ingredient in {i["key"] for i in ingredients} else ""
 
     messages = []
     for side in ("a", "b"):
@@ -366,46 +380,22 @@ def compare():
         messages.append("Product A and product B are the same product. Please choose a different product for B.")
     for side in ("a", "b"):
         product = shown[side]
-        if product is None:
-            continue
-        if product["compare_group"] is None:
+        if product is not None and product["compare_group"] is None:
             category = product["category"] or "its category"
             messages.append(
                 f"Product {side.upper()} ({category}) has no comparison group, "
                 "so it can't be compared fairly with other products."
-            )
-        elif not result[f"{side}_main"]:
-            messages.append(
-                f"Product {side.upper()} doesn't name any of the main ingredients we group by or list one "
-                f"among its first {main_ingredients_content.TOP_N} ingredients, so it can't be compared here."
             )
     if result["status"] == "different_groups":
         messages.append(
             f"Product A is in {result['a_group']} and product B is in {result['b_group']}, "
             "so they can't be compared fairly."
         )
-    elif result["status"] == "different_ingredients":
-        messages.append(
-            f"Product A is grouped under {join_labels(result['a_main'])} and product B under "
-            f"{join_labels(result['b_main'])}, so they can't be compared here: "
-            "they share no main ingredient group."
-        )
     if group and group not in group_sizes:
         messages.append(f"There is only 1 product in {group}, so there is nothing to compare.")
-    elif ingredient and ingredient_products.get(ingredient, 0) < 2:
-        messages.append(
-            f"Only 1 product in {group} is in the {MAIN_INGREDIENT_LABELS[ingredient]} group, "
-            "so there is nothing to compare."
-        )
-    elif group and ingredients and not any(i["products"] >= 2 for i in ingredients):
-        messages.append(
-            f"In {group}, no main ingredient group has 2 or more products, so there is nothing to compare."
-        )
-    elif group and not ingredients and not anchor:
-        messages.append(f"No product in {group} is in a main ingredient group, so there is nothing to compare.")
 
     options = {"a": [], "b": []}
-    if group and ingredient and ingredient_products.get(ingredient, 0) >= 2:
+    if group in group_sizes:
         for side, other_side in (("a", "b"), ("b", "a")):
             exclude = shown[other_side]["id"] if shown[other_side] else None
             options[side] = [
@@ -425,8 +415,6 @@ def compare():
     }
     if both_shown and result["status"] == "different_groups":
         retry_url, retry_label = url_for("compare", a=shown["a"]["id"]), f"Choose a product from {result['a_group']}"
-    elif both_shown and result["status"] == "different_ingredients":
-        retry_url, retry_label = url_for("compare", a=shown["a"]["id"]), "Choose another product to compare with A"
     else:
         retry_url, retry_label = url_for("compare"), "Start again"
 
@@ -437,17 +425,85 @@ def compare():
             side: check_avoid_list(terms, [i["name"] for i in shown[side]["ingredients"]]) for side in ("a", "b")
         }
 
+    type_groups = {g["name"] for g in list_format_types(db_path)["groups"]} if group in group_sizes else set()
     return render_template(
-        "compare.html", result=result, shown=shown, both_shown=both_shown, messages=messages,
+        "compare.html", content=types_content, mode=mode if group in group_sizes else "", group_ok=group in group_sizes, result=result,
+        shown=shown, both_shown=both_shown, messages=messages, gentle=[], types_page=None,
         groups=groups, group_sections=group_sections([(g["name"], f" ({g['products']})") for g in groups]),
         group=group, ingredients=ingredients, ingredient=ingredient,
         ingredient_label=MAIN_INGREDIENT_LABELS.get(ingredient), options=options,
         selected={side: shown[side]["id"] if shown[side] else None for side in ("a", "b")},
         facts=facts, rate=rate, retry_url=retry_url, retry_label=retry_label,
         shared_label=join_labels(result["shared_main"]) if result["shared_main"] else None,
-        top_n=main_ingredients_content.TOP_N,
+        top_n=main_ingredients_content.TOP_N, types_available=group in type_groups,
         avoid=avoid_content, avoid_checks=avoid_checks,
     )
+
+
+def compare_types_page(db_path, groups, group_sizes, raw_group, raw_a, raw_b):
+    """The Compare page in "two product types" mode. Every choice offered leads to a result; a link with
+    a choice that can't be compared gets a friendly line that names the categories that work."""
+    listing = list_format_types(db_path)
+    type_groups = {g["name"]: g for g in listing["groups"]}
+    options_text = join_names(type_groups) or "none yet"
+    group = raw_group if raw_group in group_sizes else ""
+    gentle = []
+    mode, type_a, type_b, a_options, b_options, result = "types", "", "", [], [], None
+
+    if group and group not in type_groups:
+        gentle.append(types_content.NO_TYPES_FOR_CATEGORY.format(
+            group=group, min=listing["min_products"], options=options_text))
+        mode = ""    # the two choices are offered again
+    elif group:
+        info = type_groups[group]
+        words = {t["key"] for t in info["types"]}
+        pairs = {(p["a"], p["b"]) for p in info["pairs"]} | {(p["b"], p["a"]) for p in info["pairs"]}
+        type_a = raw_a if raw_a in words else ""
+        type_b = raw_b if type_a and (type_a, raw_b) in pairs else ""
+        if (raw_a and not type_a) or (raw_b and not type_b):
+            gentle.append(types_content.UNUSABLE_CHOICE.format(options=options_text))
+        a_options = [{"key": t["key"], "label": t["label"]} for t in info["types"]]
+        for p in info["pairs"]:
+            if type_a in (p["a"], p["b"]):
+                other, count = (p["b"], p["b_products"]) if p["a"] == type_a else (p["a"], p["a_products"])
+                b_options.append({"key": other, "label": other.capitalize(), "products": count})
+        b_options.sort(key=lambda o: types_content.TYPE_WORDS.index(o["key"]))
+    elif raw_group:
+        gentle.append(types_content.UNUSABLE_CHOICE.format(options=options_text))
+        mode = ""
+
+    if group and type_a and type_b:
+        result = compare_types_data(group, type_a, type_b, db_path)
+    rate = get_usd_inr_rate(db_path) if result and result["status"] == "ok" else None
+    rupees = {}
+    if rate and result and result["status"] == "ok":
+        for side in ("a", "b"):
+            price = result[side]["price"]
+            rupees[side] = price and {k: inr_price(price[k], rate.rate) for k in ("min", "median", "max")}
+    sizes = bool(result and result["status"] == "ok" and result["a"]["products"] != result["b"]["products"])
+
+    return render_template(
+        "compare.html", content=types_content, mode=mode, group_ok=bool(group), result=None, shown={"a": None, "b": None},
+        both_shown=False, messages=[], gentle=gentle,
+        groups=groups, group_sections=group_sections([(g["name"], f" ({g['products']})") for g in groups]),
+        group=group or None, ingredients=[], ingredient="", ingredient_label=None, options={"a": [], "b": []},
+        selected={"a": None, "b": None}, facts=None, rate=rate, retry_url=url_for("compare"),
+        retry_label="Start again", shared_label=None, top_n=main_ingredients_content.TOP_N,
+        types_available=bool(group) and group in type_groups, avoid=avoid_content, avoid_checks=None,
+        types_page={"a_options": a_options, "b_options": b_options, "type_a": type_a, "type_b": type_b,
+                    "result": result, "rupees": rupees, "different_sizes": sizes,
+                    "min_products": listing["min_products"]},
+    )
+
+
+@app.route("/compare/types")
+def compare_types_view():
+    """The old separate page is now a mode of /compare (the choices in the link are kept)."""
+    keep = {k: request.args.get(k, "").strip() for k in ("group", "a", "b")}
+    keep = {k: v for k, v in keep.items() if v}
+    if keep:
+        return redirect(url_for("compare", mode="types", **keep), code=301)
+    return redirect(url_for("compare"), code=301)
 
 
 def bar_percent(value, largest):

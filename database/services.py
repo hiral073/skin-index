@@ -11,10 +11,12 @@ from content import avoid_list as avoid_content
 from content import science as science_content
 from content import ingredient_cards as cards_content
 from content import main_ingredients as main_ingredients_content
+from content import product_types as types_content
 from content import science as science_content
 from content.compare_groups import GROUP_SEPARATOR
 from database.db import get_db, init_db
 from database.ingredient_match import ingredient_key, term_matches
+from database.type_match import name_has_word, split_by_types
 from live.currency import CurrencyError, fetch_usd_inr
 from live.pubmed import PubmedError, count_pubmed, search_pubmed, topic_query
 from live.weather import WeatherError, fetch_air_quality, fetch_forecast, search_places
@@ -264,29 +266,31 @@ def list_groups(db_path=None):
 
 def list_group_ingredients(group, db_path=None):
     """The main ingredient groups with at least one product in a comparison group, in the order of
-    the content file: [{"key", "label", "products"}]. A count under 2 means nothing to compare."""
+    the content file: [{"key", "label", "products"}]. Only groups with at least 2 products are listed;
+    they feed the optional "narrow by main ingredient" filter."""
     init_db(db_path)
     with closing(get_db(db_path)) as conn:
         products = _group_products(conn, group)
     counts = {key: sum(key in p["main"] for p in products) for key in MAIN_INGREDIENT_LABELS}
     return [
         {"key": key, "label": label, "products": counts[key]}
-        for key, label in MAIN_INGREDIENT_LABELS.items() if counts[key]
+        for key, label in MAIN_INGREDIENT_LABELS.items() if counts[key] >= 2
     ]
 
 
 def list_products_in_group(group, ingredient, exclude_id=None, db_path=None):
-    """Products of a comparison group that belong to one main ingredient group, for a dropdown.
+    """Products of a comparison group, for a dropdown, optionally narrowed to one main ingredient group.
 
     Returns [{"id", "name", "brand", "size_text", "price"}] sorted by name; `ingredient` is a key
-    of the content file (an unknown key lists nothing); `exclude_id` leaves one product out.
+    of the content file (empty or None: no narrowing; an unknown key lists nothing); `exclude_id`
+    leaves one product out.
     """
     init_db(db_path)
     with closing(get_db(db_path)) as conn:
         products = _group_products(conn, group)
     return [
         {k: p[k] for k in ("id", "name", "brand", "size_text", "price")}
-        for p in products if ingredient in p["main"] and p["id"] != exclude_id
+        for p in products if (not ingredient or ingredient in p["main"]) and p["id"] != exclude_id
     ]
 
 
@@ -298,11 +302,10 @@ def compare_products(a_id, b_id, db_path=None):
     - a, b: the product as in get_product_detail, or None.
     - a_state, b_state: "not chosen" (id None), "unknown" (no such product) or "found".
     - a_main, b_main: the main ingredient groups (keys) each found product belongs to (else []);
-      shared_main: the ones both belong to, in the order of the content file.
+      shared_main: the ones both belong to, in the order of the content file (only information).
     - status: "waiting" (a side is not found), "same_product", "no_group" (a product has no
-      comparison group), "different_groups", "no_main_ingredient" (a product belongs to no main
-      ingredient group), "different_ingredients" (no main ingredient group in common) or "ok".
-      comparable is True only for "ok": the same comparison group and a main ingredient group in common.
+      comparison group), "different_groups" or "ok". comparable is True only for "ok": the same
+      comparison group. A main ingredient group is not needed.
     - ingredients (comparable, both with ingredients, else None): {"shared", "only_a", "only_b"}
       as ingredient names in label order (shared in A's order), plus the three counts.
     No verdict is made: the data has no amounts and no product is called better than another.
@@ -347,10 +350,6 @@ def compare_products(a_id, b_id, db_path=None):
         result["status"] = "no_group"
     elif a["compare_group"] != b["compare_group"]:
         result["status"] = "different_groups"
-    elif not main["a"] or not main["b"]:
-        result["status"] = "no_main_ingredient"
-    elif not shared_main:
-        result["status"] = "different_ingredients"
     else:
         result["status"] = "ok"
         result["comparable"] = True
@@ -679,6 +678,142 @@ def get_insights(group=None, db_path=None):
         "price_bands": price_bands,
         "ingredients": ingredients,
     }
+
+
+# ------------------------------------------------------------------ #
+# Compare types: two types (name words) inside one group              #
+# ------------------------------------------------------------------ #
+
+def _type_products(conn, group):
+    return [dict(r) for r in conn.execute(
+        "SELECT id, name, price, rating, reviews FROM products WHERE compare_group = ?", (group,))]
+
+
+def _type_stats(conn, products):
+    """Plain numbers for one side: count, USD price min/median/max, weighted rating, top ingredients."""
+    prices = sorted(p["price"] for p in products if p["price"] is not None)
+    if prices:
+        mid = len(prices) // 2
+        median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
+        price = {"min": prices[0], "median": median, "max": prices[-1], "products": len(prices)}
+    else:
+        price = None
+    rated = [(p["rating"], p["reviews"]) for p in products if p["rating"] is not None and p["reviews"]]
+    ids = [p["id"] for p in products]
+    marks = ",".join("?" * len(ids))
+    with_list = conn.execute(
+        f"SELECT COUNT(DISTINCT product_id) FROM product_ingredients WHERE product_id IN ({marks})", ids
+    ).fetchone()[0] if ids else 0
+    ranked = conn.execute(
+        "SELECT i.name, COUNT(DISTINCT pi.product_id) AS products FROM product_ingredients pi"
+        f" JOIN ingredients i ON i.id = pi.ingredient_id WHERE pi.product_id IN ({marks})"
+        " AND LOWER(i.name) != 'water' GROUP BY i.id ORDER BY products DESC, i.name COLLATE NOCASE LIMIT ?",
+        [*ids, types_content.TYPES_CONFIG["top_n"]],
+    ).fetchall() if ids else []
+    water = conn.execute(
+        "SELECT COUNT(DISTINCT pi.product_id) FROM product_ingredients pi"
+        f" JOIN ingredients i ON i.id = pi.ingredient_id WHERE pi.product_id IN ({marks})"
+        " AND LOWER(i.name) = 'water'", ids,
+    ).fetchone()[0] if ids else 0
+
+    def share(count):
+        return count / with_list * 100 if with_list else None
+
+    return {
+        "products": len(products),
+        "price": price,
+        "rating": weighted_rating(rated),
+        "rated_products": len(rated),
+        "ingredients": {
+            "products": with_list,
+            "top": [{"name": r["name"], "products": r["products"], "share_percent": share(r["products"])}
+                    for r in ranked],
+            "water": {"products": water, "share_percent": share(water)},
+        },
+    }
+
+
+def _type_pairs(products):
+    """The pairs of type words that can be compared in one group's products.
+
+    A word is a candidate when at least the minimum number of names contain it; a pair is usable
+    when each side has at least the minimum after the products with both words are left out.
+    Returns (words that are in a usable pair, pairs) where a pair is
+    {"a", "b", "a_products", "b_products", "left_out"}, with words in the order of TYPE_WORDS.
+    """
+    minimum = types_content.TYPES_CONFIG["min_products"]
+    has = {w: {p["id"] for p in products if name_has_word(p["name"], w)} for w in types_content.TYPE_WORDS}
+    candidates = [w for w in types_content.TYPE_WORDS if len(has[w]) >= minimum]
+    pairs = []
+    for i, a in enumerate(candidates):
+        for b in candidates[i + 1:]:
+            both = len(has[a] & has[b])
+            a_only, b_only = len(has[a]) - both, len(has[b]) - both
+            if a_only >= minimum and b_only >= minimum:
+                pairs.append({"a": a, "b": b, "a_products": a_only, "b_products": b_only, "left_out": both})
+    used = {w for pair in pairs for w in (pair["a"], pair["b"])}
+    return [w for w in types_content.TYPE_WORDS if w in used], pairs
+
+
+def list_format_types(db_path=None):
+    """The categories whose products can be compared by type, for the page and the MCP tool; plain data only.
+
+    {"min_products", "groups": [{"name", "types": [{"key", "label", "word"}], "pairs": [...]}]}.
+    Built from the data: only categories with at least one usable pair are listed (see `_type_pairs`),
+    and a type is listed only when it is in a usable pair, so every choice leads to a result.
+    """
+    init_db(db_path)
+    groups = []
+    with closing(get_db(db_path)) as conn:
+        names = [r[0] for r in conn.execute(
+            "SELECT compare_group FROM products WHERE compare_group IS NOT NULL"
+            " GROUP BY compare_group HAVING COUNT(*) >= 2 ORDER BY compare_group COLLATE NOCASE")]
+        for name in names:
+            words, pairs = _type_pairs(_type_products(conn, name))
+            if pairs:
+                groups.append({"name": name, "pairs": pairs,
+                               "types": [{"key": w, "label": w.capitalize(), "word": w} for w in words]})
+    return {"min_products": types_content.TYPES_CONFIG["min_products"], "groups": groups}
+
+
+def compare_types(group, type_a, type_b, db_path=None):
+    """Two types of one category side by side; plain data only, no verdict.
+
+    status: "waiting" (a type is not chosen), "unknown" (the category or a type word is not known),
+    "same_type", "too_few" (a side has fewer products than the minimum) or "ok". Always present:
+    group, min_products, a and b (None until known, else {"key", "label", "word", "products"}) and
+    left_out ({"products", "words"}: the products whose names contain both words, on neither side).
+    Only for "ok", each side also has price (USD min, median, max), rating (review-weighted),
+    rated_products, ingredients and format_line (our line with its named source, or None).
+    Input that is not usable gives a status, never an error; use `list_format_types` for the choices.
+    """
+    config = types_content.TYPES_CONFIG
+    base = {"group": group, "min_products": config["min_products"], "left_out": None, "a": None, "b": None}
+    init_db(db_path)
+    with closing(get_db(db_path)) as conn:
+        products = _type_products(conn, group) if group else []
+        if group and not products:
+            return {**base, "status": "unknown"}
+        if not type_a or not type_b:
+            return {**base, "status": "waiting"}
+        if type_a not in types_content.TYPE_WORDS or type_b not in types_content.TYPE_WORDS:
+            return {**base, "status": "unknown"}
+        if type_a == type_b:
+            return {**base, "status": "same_type"}
+        only_a, only_b, both = split_by_types(products, type_a, type_b)
+        result = {**base, "left_out": {"products": len(both), "words": [type_a, type_b]}}
+        for key, word, rows in (("a", type_a, only_a), ("b", type_b, only_b)):
+            result[key] = {"key": word, "label": word.capitalize(), "word": word, "products": len(rows)}
+        if min(len(only_a), len(only_b)) < config["min_products"]:
+            return {**result, "status": "too_few"}
+        for key, word, rows in (("a", type_a, only_a), ("b", type_b, only_b)):
+            line = types_content.FORMAT_LINES.get((group, word))
+            result[key] = {
+                **result[key], **_type_stats(conn, rows),
+                "format_line": line and {"text": line["text"], "source_name": line["source"]["name"],
+                                         "source_url": line["source"]["url"], "checked": line["checked"]},
+            }
+    return {**result, "status": "ok"}
 
 
 # ------------------------------------------------------------------ #
