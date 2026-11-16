@@ -25,8 +25,8 @@ NOTES = {
     "ingredients": "Patch-test new products and see a dermatologist with any concern.",
     "compare_types": ("A type is a word in the product name (whole word, capital letters ignored), not a tested "
                       "formulation. Products whose names contain both words are left out of both sides. The two "
-                      "types can have different numbers of products, so compare the typical values (median, "
-                      "average), not the totals. Ratings come from one retailer's site as of March 2023. "
+                      "types can have different numbers of products, so compare the shares and "
+                      "averages, not the totals. Ratings come from one retailer's site as of March 2023. "
                       "General information from the sources named. Not medical advice."),
 }
 

@@ -6,6 +6,7 @@ from collections import namedtuple
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
+from urllib.parse import urlencode
 
 from content import avoid_list as avoid_content
 from content import science as science_content
@@ -140,6 +141,7 @@ FILTER_SQL = """
     FROM products
     WHERE (:q = '' OR name LIKE :like ESCAPE '\\' OR brand LIKE :like ESCAPE '\\')
       AND (:category = '' OR compare_group = :category OR compare_group LIKE :sub_prefix ESCAPE '\\')
+      AND (:type_ids IS NULL OR id IN (SELECT value FROM json_each(:type_ids)))
 """
 COUNT_SQL = "SELECT COUNT(*) " + FILTER_SQL
 PRODUCTS_SQL = (
@@ -179,7 +181,7 @@ def search_products(query="", group="", ingredient="", limit=10, db_path=None):
         if term is None:
             return {"status": "invalid_ingredient", "total": 0, "products": []}
     params = {"q": query, "like": f"%{escape_like(query)}%", "category": group,
-              "sub_prefix": escape_like(group + GROUP_SEPARATOR) + "%", "sort": "name"}
+              "sub_prefix": escape_like(group + GROUP_SEPARATOR) + "%", "sort": "name", "type_ids": None}
     init_db(db_path)
     with closing(get_db(db_path)) as conn:
         if term:   # the word is matched in the ingredient text, so every row is checked first
@@ -689,13 +691,37 @@ def _type_products(conn, group):
         "SELECT id, name, price, rating, reviews FROM products WHERE compare_group = ?", (group,))]
 
 
+def type_products_path(group, word, other_word):
+    """The relative Products page path that lists exactly one side of a type comparison."""
+    return "/products?" + urlencode({"category": group, "type": word, "vs": other_word})
+
+
+def type_filter(group, word, other_word, db_path=None):
+    """The products of one side of a type comparison, for the Products page's type filter.
+
+    Uses the same rule as `compare_types`: the products of the category (exactly that group) whose
+    names contain `word` as a whole word and not `other_word`. Returns {"group", "word", "vs", "ids",
+    "label"}, or None when the category has no products, a word is not one of the type words, or the
+    two words are the same.
+    """
+    words = types_content.TYPE_WORDS
+    if not group or word not in words or other_word not in words or word == other_word:
+        return None
+    init_db(db_path)
+    with closing(get_db(db_path)) as conn:
+        products = _type_products(conn, group)
+    if not products:
+        return None
+    only, _, _ = split_by_types(products, word, other_word)
+    return {"group": group, "word": word, "vs": other_word, "ids": [p["id"] for p in only],
+            "label": f"{word} {group.lower()}"}
+
+
 def _type_stats(conn, products):
-    """Plain numbers for one side: count, USD price min/median/max, weighted rating, top ingredients."""
+    """Plain numbers for one side: count, USD price min and max, weighted rating, top ingredients."""
     prices = sorted(p["price"] for p in products if p["price"] is not None)
     if prices:
-        mid = len(prices) // 2
-        median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
-        price = {"min": prices[0], "median": median, "max": prices[-1], "products": len(prices)}
+        price = {"min": prices[0], "max": prices[-1], "products": len(prices)}
     else:
         price = None
     rated = [(p["rating"], p["reviews"]) for p in products if p["rating"] is not None and p["reviews"]]
@@ -783,7 +809,7 @@ def compare_types(group, type_a, type_b, db_path=None):
     "same_type", "too_few" (a side has fewer products than the minimum) or "ok". Always present:
     group, min_products, a and b (None until known, else {"key", "label", "word", "products"}) and
     left_out ({"products", "words"}: the products whose names contain both words, on neither side).
-    Only for "ok", each side also has price (USD min, median, max), rating (review-weighted),
+    Only for "ok", each side also has price (USD min and max), rating (review-weighted),
     rated_products, ingredients and format_line (our line with its named source, or None).
     Input that is not usable gives a status, never an error; use `list_format_types` for the choices.
     """
@@ -810,6 +836,7 @@ def compare_types(group, type_a, type_b, db_path=None):
             line = types_content.FORMAT_LINES.get((group, word))
             result[key] = {
                 **result[key], **_type_stats(conn, rows),
+                "products_path": type_products_path(group, word, type_b if key == "a" else type_a),
                 "format_line": line and {"text": line["text"], "source_name": line["source"]["name"],
                                          "source_url": line["source"]["url"], "checked": line["checked"]},
             }

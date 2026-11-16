@@ -18,8 +18,6 @@
     </p>
 
     <dl class="type-facts">
-        <div class="fact-row"><dt>Typical price (median)</dt>
-            <dd>{% if side.price %}{% if rupees %}≈ ₹{{ '{:,}'.format(rupees.median) }} <span class="inr">(${{ '%.2f' | format(side.price.median) }})</span>{% else %}${{ '%.2f' | format(side.price.median) }}{% endif %}{% else %}{{ na() }}{% endif %}</dd></div>
         <div class="fact-row"><dt>Price range</dt>
             <dd>{% if side.price %}{% if rupees %}≈ ₹{{ '{:,}'.format(rupees.min) }} to ₹{{ '{:,}'.format(rupees.max) }} <span class="inr">(${{ '%.2f' | format(side.price.min) }} to ${{ '%.2f' | format(side.price.max) }})</span>{% else %}${{ '%.2f' | format(side.price.min) }} to ${{ '%.2f' | format(side.price.max) }}{% endif %}{% else %}{{ na() }}{% endif %}</dd></div>
         <div class="fact-row"><dt>Average rating</dt>
@@ -39,6 +37,7 @@
     {% else %}
     <p class="picker-hint">Not enough data.</p>
     {% endif %}
+    <p class="type-see-all"><a class="btn-ghost" href="{{ side.products_path }}">{{ content.SEE_ALL.format(n='{:,}'.format(side.products), products='product' if side.products == 1 else 'products') }}</a></p>
 </article>
 {% endmacro %}
 

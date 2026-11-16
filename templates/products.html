@@ -13,6 +13,7 @@
     <form class="filter-bar" method="get" action="{{ url_for('products') }}">
         <input class="form-input filter-search" type="search" name="q" value="{{ q }}"
                placeholder="Search by product or brand" aria-label="Search products">
+        {% for key, value in type_args.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
         <select class="form-input" name="category" aria-label="Category">
             <option value="">All categories</option>
             {{ group_options(category_sections, category) }}
@@ -24,10 +25,14 @@
             {% endfor %}
         </select>
         <button class="btn-primary" type="submit">Search</button>
-        {% if q or category or sort != 'name' or hide %}
+        {% if q or category or sort != 'name' or hide or type_chip %}
         <a class="btn-ghost" href="{{ url_for('products') }}">Clear</a>
         {% endif %}
     </form>
+
+    {% if type_chip %}
+    <p class="active-filters"><a class="filter-chip" href="{{ type_remove_url }}" title="Whole-word match on the product name; names with both words are left out" aria-label="Remove filter {{ type_chip }}">{{ type_chip }} <span class="chip-x" aria-hidden="true"></span></a></p>
+    {% endif %}
 
     {% if products %}
     <p class="results-count">{{ total }} product{{ '' if total == 1 else 's' }} · page {{ page }} of {{ pages }}</p>

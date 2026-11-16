@@ -17,7 +17,7 @@ from database.db import DB_PATH, get_db
 from database.services import (
     CATEGORIES_SQL, COUNT_SQL, MAIN_INGREDIENT_LABELS, PRODUCTS_SQL, TODAY_CONFIG, check_avoid_list, clean_avoid_terms, compare_products, compare_types as compare_types_data, escape_like, get_insights,
     get_ingredient_card, get_ingredient_glance, get_product_detail, get_today_conditions, get_usd_inr_rate, group_papers, inr_per_ml,
-    inr_price, list_format_types, list_group_ingredients, list_groups, list_products_in_group,
+    inr_price, list_format_types, type_filter as type_filter_data, list_group_ingredients, list_groups, list_products_in_group,
     main_ingredients_of, search_research, split_ingredients_text,
 )
 
@@ -144,7 +144,7 @@ def home_today_strip():
             "uv": uv.get("now"), "uv_category": uv.get("now_category"), "humidity": data["humidity"]}
 
 
-def list_args(q, category, sort, page, hide=False):
+def list_args(q, category, sort, page, hide=False, type_word=None, vs=None):
     """Search, filter, sort, page and the hide switch of the product list, for links that return to it.
 
     Defaults and unknown or invalid values become None, which url_for leaves out. The avoid list
@@ -156,6 +156,8 @@ def list_args(q, category, sort, page, hide=False):
         "sort": sort if sort in SORT_OPTIONS and sort != "name" else None,
         "page": page if page and page > 1 else None,
         "hide": "1" if hide else None,
+        "type": type_word if type_word in types_content.TYPE_WORDS and vs in types_content.TYPE_WORDS else None,
+        "vs": vs if type_word in types_content.TYPE_WORDS and vs in types_content.TYPE_WORDS else None,
     }
 
 
@@ -171,8 +173,13 @@ def products():
     terms = avoid_terms()
     hide = request.args.get("hide") == "1" and bool(terms)   # the switch needs a list to do anything
 
+    # The type filter uses the same whole-word rule as Compare types (a name with both words is left out)
+    type_filter = type_filter_data(category, request.args.get("type", "").strip(),
+                                   request.args.get("vs", "").strip(), app.config["DATABASE"])
     params = {"q": q, "like": f"%{escape_like(q)}%", "category": category,
-              "sub_prefix": escape_like(category + GROUP_SEPARATOR) + "%"}
+              "sub_prefix": escape_like(category + GROUP_SEPARATOR) + "%",
+              "type_ids": json.dumps(type_filter["ids"]) if type_filter else None}
+    type_args = {"type": type_filter["word"], "vs": type_filter["vs"]} if type_filter else {}
     with closing(get_db(app.config["DATABASE"])) as conn:
         if hide:
             # every match is checked first, so the count and the pages follow what is left
@@ -205,12 +212,16 @@ def products():
 
     def page_url(n):
         return url_for("products", q=q or None, category=category or None, sort=sort, page=n,
-                       hide="1" if hide else None)
+                       hide="1" if hide else None, **type_args)
 
     return render_template(
         "products.html",
         products=rows,
-        detail_args=list_args(q, category, sort, page, hide),
+        detail_args=list_args(q, category, sort, page, hide, type_args.get("type"), type_args.get("vs")),
+        type_filter=type_filter, type_args=type_args,
+        type_remove_url=url_for("products", q=q or None, category=category or None,
+                                sort=sort if sort != "name" else None, hide="1" if hide else None),
+        type_chip=types_content.TYPE_CHIP.format(label=type_filter["label"]) if type_filter else None,
         total=total,
         q=q,
         category=category,
@@ -242,6 +253,8 @@ def product_detail(id):
             request.args.get("sort"),
             request.args.get("page", type=int),
             request.args.get("hide") == "1",
+            request.args.get("type", "").strip(),
+            request.args.get("vs", "").strip(),
         ),
     )
     terms = avoid_terms()
@@ -479,7 +492,7 @@ def compare_types_page(db_path, groups, group_sizes, raw_group, raw_a, raw_b):
     if rate and result and result["status"] == "ok":
         for side in ("a", "b"):
             price = result[side]["price"]
-            rupees[side] = price and {k: inr_price(price[k], rate.rate) for k in ("min", "median", "max")}
+            rupees[side] = price and {k: inr_price(price[k], rate.rate) for k in ("min", "max")}
     sizes = bool(result and result["status"] == "ok" and result["a"]["products"] != result["b"]["products"])
 
     return render_template(

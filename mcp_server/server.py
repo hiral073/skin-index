@@ -276,8 +276,8 @@ def check_avoid_list(
 @_tool(
     "Two product types of one group side by side, from the same numbers as the Compare page. A type is a "
     "whole word in the product name (for example 'cream' or 'gel'); products whose names contain both words "
-    "are left out of both sides and counted in `left_out`. Each side has its product count, USD price min, "
-    "median and max, the review-weighted average rating, the most common ingredients (Water apart) and, for "
+    "are left out of both sides and counted in `left_out`. Each side has its product count, USD price min "
+    "and max, the review-weighted average rating, the most common ingredients (Water apart) and, for "
     "the few types with a named source, a short line on what the word usually means. Each type needs at least "
     "the minimum number of products. With no input, or with a group or type that can't be compared, the "
     "answer is a plain status and `valid_choices`, the groups and type pairs that can be compared. No "
@@ -315,7 +315,8 @@ def compare_types(
         s = result[side]
         data[side] = {
             "type": s["key"], "word": s["word"], "products": s["products"],
-            "price_usd": s["price"] and {k: s["price"][k] for k in ("min", "median", "max")},
+            "price_usd": s["price"] and {k: s["price"][k] for k in ("min", "max")},
+            "products_path": s["products_path"],
             "average_rating": s["rating"] and round(s["rating"], 2),
             "rated_products": s["rated_products"],
             "most_common_ingredients": s["ingredients"]["top"],

@@ -75,8 +75,10 @@ WAITING = "Choose two types to see them side by side."
 
 # fixed lines of the page; {n} is filled in
 LEFT_OUT = "Products whose names contain both words are left out of this comparison, {n} {products}."
-DIFFERENT_SIZES = ("The two types have different numbers of products, so compare the typical values "
-                   "(median, average), not the totals.")
+DIFFERENT_SIZES = ("The two types have different numbers of products, so compare the shares and "
+                   "averages, not the totals.")
+SEE_ALL = "See all {n} {products}"
+TYPE_CHIP = "Type: {label}"
 
 READING_NOTE = ("A product is in a type when its name contains that word as a whole word, ignoring capital "
                 "letters. These are words brands put in names, not tested formulations. "

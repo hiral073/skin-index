@@ -19,8 +19,8 @@ BANNED = re.compile(
     r"better|worse|cheaper|cheapest|winner|bestseller)\b|for your skin|skin type", re.I)
 
 LEFT_OUT_LINE = "Products whose names contain both words are left out of this comparison, {n} products."
-SIZES_LINE = ("The two types have different numbers of products, so compare the typical values "
-              "(median, average), not the totals.")
+SIZES_LINE = ("The two types have different numbers of products, so compare the shares and "
+              "averages, not the totals.")
 CLEANSERS = "Face Wash & Cleansers"
 
 
@@ -155,8 +155,8 @@ def test_compare_types_returns_plain_numbers(market):
     r = services.compare_types("Moisturizers", "cream", "gel", market)
     assert r["status"] == "ok" and r["left_out"] == {"products": 3, "words": ["cream", "gel"]}
     assert (r["a"]["products"], r["b"]["products"]) == (21, 20)
-    assert r["a"]["price"] == {"min": 10.0, "median": 20.0, "max": 30.0, "products": 21}
-    assert r["b"]["price"]["median"] == 39.5 and r["b"]["price"]["min"] == 30.0   # even count: mean of the middle two
+    assert r["a"]["price"] == {"min": 10.0, "max": 30.0, "products": 21}          # no median
+    assert r["b"]["price"] == {"min": 30.0, "max": 49.0, "products": 20}
     assert r["a"]["rating"] == 4.0 and r["b"]["rating"] == 5.0
     assert r["a"]["rated_products"] == 21
     top = {i["name"]: i for i in r["a"]["ingredients"]["top"]}
@@ -170,7 +170,7 @@ def test_a_cleanser_pair_has_data_and_no_format_line(cleansers):
     r = services.compare_types(CLEANSERS, "gel", "oil", cleansers)
     assert r["status"] == "ok" and (r["a"]["products"], r["b"]["products"]) == (16, 15)
     assert r["left_out"]["products"] == 3
-    assert r["a"]["price"]["median"] and r["b"]["ingredients"]["top"][0]["name"] in ("Squalane", "Glycerin")
+    assert r["a"]["price"]["min"] and r["b"]["ingredients"]["top"][0]["name"] in ("Squalane", "Glycerin")
     assert r["a"]["format_line"] is None and r["b"]["format_line"] is None
 
 
@@ -324,8 +324,9 @@ def test_the_result_shows_big_counts_the_left_out_line_and_the_sizes_line(client
     assert LEFT_OUT_LINE.format(n=3) in body
     assert SIZES_LINE in body
     assert html.index("type-count") < html.index("type-left-out") < html.index("type-sizes")   # under the result
-    assert "≈ ₹1,800" in body                                         # the cream median, $20 at 90
-    assert "Typical price (median)" in body and "Average rating" in body and "Most common ingredients" in body
+    assert "≈ ₹900 to ₹2,700" in body                                 # the cream price range, $10 to $30 at 90
+    assert "Price range" in body and "Average rating" in body and "Most common ingredients" in body
+    assert "median" not in body.lower() and "Typical price" not in body
     assert "Water is in 100% of these products" in body
 
 
@@ -337,7 +338,7 @@ def test_a_cleanser_pair_shows_data_only_with_no_format_description(client, clea
     assert LEFT_OUT_LINE.format(n=3) in body and SIZES_LINE in body
     assert body.count(pt.NO_FORMAT_LINE) == 2
     assert "Thicker than a lotion" not in body and "aad.org" not in html
-    assert "Typical price (median)" in body and "Squalane" in body
+    assert "Price range" in body and "Squalane" in body and "median" not in body.lower()
 
 
 def test_one_left_out_product_reads_as_singular(client, app):
@@ -396,7 +397,7 @@ def test_bad_arguments_never_break_the_page(client, market):
 def test_without_a_rate_prices_are_in_dollars_with_a_note(client, market):
     body = text(page(client, "/compare?mode=types&group=Moisturizers&a=cream&b=gel"))
     assert "Rupee prices are not available right now, so US dollar prices are shown." in body
-    assert "$20.00" in body and "₹" not in body
+    assert "$10.00 to $30.00" in body and "₹" not in body
 
 
 # ---- the fixed texts and the banned wording -------------------------------------------------- #
@@ -473,7 +474,10 @@ def test_the_mcp_tool_returns_the_same_numbers_as_the_page(mcp, market):
     assert answer["source"].startswith("Skin Index database") and data["status"] == "ok"
     assert (data["a"]["products"], data["b"]["products"]) == (21, 20)
     assert data["left_out"] == {"products": 3, "words": ["cream", "gel"]}
-    assert data["a"]["price_usd"] == {"min": 10.0, "median": 20.0, "max": 30.0}
+    assert data["a"]["price_usd"] == {"min": 10.0, "max": 30.0}
+    assert "median" not in str(answer).lower()
+    assert data["a"]["products_path"] == "/products?category=Moisturizers&type=cream&vs=gel"
+    assert data["b"]["products_path"] == "/products?category=Moisturizers&type=gel&vs=cream"
     assert data["b"]["average_rating"] == 5.0
     assert data["a"]["format_line"]["source_name"] == pt.AAD_EMOLLIENTS["name"]
     assert [i["name"] for i in data["a"]["most_common_ingredients"]] == ["Dimethicone", "Glycerin"]   # tied: by name
@@ -520,3 +524,119 @@ def test_the_mcp_message_uses_the_singular_for_one_product(app, monkeypatch):
     data = server.compare_types("Moisturizers", "cream", "gel")["data"]
     assert data["status"] == "too_few" and "Gel has 1 product in Moisturizers" in data["message"]
 
+
+# ---- no median anywhere ------------------------------------------------------------------------ #
+
+def test_no_median_in_the_content_the_templates_or_the_mcp_text():
+    from pathlib import Path
+    from content import mcp_text
+    root = Path(__file__).resolve().parent.parent
+    for path in (root / "templates" / "_compare_types_result.html", root / "content" / "product_types.py",
+                 root / "content" / "mcp_text.py", root / "mcp_server" / "server.py"):
+        assert "median" not in path.read_text(encoding="utf-8").lower(), path.name
+    assert "median" not in mcp_text.NOTES["compare_types"].lower()
+
+
+# ---- the "See all N products" link and the Products page type filter --------------------------- #
+
+def product_total(html):
+    return int(re.search(r'<p class="results-count">([\d,]+) products?', html).group(1).replace(",", ""))
+
+
+def test_each_column_links_to_the_products_page_with_exactly_its_products(client, market):
+    html = page(client, "/compare?mode=types&group=Moisturizers&a=cream&b=gel")
+    links = re.findall(r'<a class="btn-ghost" href="([^"]+)">(See all [\d,]+ products?)</a>', html)
+    assert [(h.replace("&amp;", "&"), t) for h, t in links] == [
+        ("/products?category=Moisturizers&type=cream&vs=gel", "See all 21 products"),
+        ("/products?category=Moisturizers&type=gel&vs=cream", "See all 20 products")]
+
+
+def test_the_count_on_the_link_is_the_count_on_the_filtered_list(client, market, cleansers):
+    for url in ("/compare?mode=types&group=Moisturizers&a=cream&b=gel",
+                "/compare?mode=types&group=Face+Wash+%26+Cleansers&a=gel&b=oil"):
+        html = page(client, url)
+        for href, n in re.findall(r'<a class="btn-ghost" href="([^"]+)">See all ([\d,]+) products?</a>', html):
+            assert product_total(page(client, href.replace("&amp;", "&"))) == int(n.replace(",", "")), href
+
+
+def test_the_filter_is_a_whole_word_match_that_leaves_out_names_with_both_words(client, market):
+    html = page(client, "/products?category=Moisturizers&type=gel&vs=cream")
+    assert product_total(html) == 20 and "Water GEL 0" in html and "Gel-Cream 0" not in html
+    assert "Rich Cream" not in html and "Creme Brulee" not in html and "Plain Lotion" not in html
+    # a plain text search for "gel" finds the left-out names too: a different number, which is why the filter exists
+    assert product_total(page(client, "/products?category=Moisturizers&q=gel")) == 23
+
+
+def test_the_active_filter_is_a_removable_chip(client, market):
+    html = page(client, "/products?category=Moisturizers&type=gel&vs=cream&sort=price")
+    chip = re.search(r'<a class="filter-chip" href="([^"]+)"[^>]*>(.*?)</a>', html, re.S)
+    assert text(chip.group(2)) == "Type: gel moisturizers"
+    assert chip.group(1).replace("&amp;", "&") == "/products?category=Moisturizers&sort=price"   # removes only the type filter
+    assert 'aria-label="Remove filter Type: gel moisturizers"' in html
+    assert 'name="type" value="gel"' in html and 'name="vs" value="cream"' in html           # a new search keeps it
+    assert product_total(page(client, chip.group(1).replace("&amp;", "&"))) == 21 + 20 + 3 + 2
+
+
+def test_unusable_filter_values_are_ignored(client, market):
+    for url in ("/products?category=Moisturizers&type=gel", "/products?category=Moisturizers&type=gel&vs=gel",
+                "/products?category=Moisturizers&type=nonsense&vs=cream", "/products?type=gel&vs=cream",
+                "/products?category=Nope&type=gel&vs=cream", "/products?category=Moisturizers&type=gel&vs=%3Cscript%3E"):
+        html = page(client, url)
+        assert "filter-chip" not in html and "<script>" not in html, url
+
+
+def test_the_filter_works_with_paging_and_sorting(client, app):
+    db = app.config["DATABASE"]
+    for i in range(30):
+        add(db, f"Cool Gel {i:02d}", price=50.0 - i)
+    for i in range(5):
+        add(db, f"Rich Cream {i}")
+    first = page(client, "/products?category=Moisturizers&type=gel&vs=cream&sort=price")
+    assert product_total(first) == 30 and "page 1 of 2" in first
+    nxt = re.search(r'<a [^>]*href="([^"]+)"[^>]*>\s*Next', first, re.S).group(1).replace("&amp;", "&")
+    assert "type=gel" in nxt and "vs=cream" in nxt and "sort=price" in nxt and "page=2" in nxt
+    second = page(client, nxt)
+    assert "page 2 of 2" in second and second.count("Cool Gel") == 6 and "filter-chip" in second
+    assert second.index("Cool Gel 05") < second.index("Cool Gel 00") or "Cool Gel 05" not in second   # price order: low to high
+
+
+def test_the_filter_works_with_the_avoid_list(client, app):
+    db = app.config["DATABASE"]
+    for i in range(3):
+        add(db, f"Cool Gel {i}", ingredients=["Water", "Glycerin"])
+    add(db, "Fragrant Gel", ingredients=["Water", "Parfum"])
+    add(db, "Fragrant Cream", ingredients=["Water", "Parfum"])
+    with closing(get_db(db)) as conn, conn:
+        conn.execute("UPDATE products SET ingredients_text = 'Water, Glycerin' WHERE name LIKE 'Cool Gel%'")
+        conn.execute("UPDATE products SET ingredients_text = 'Water, Parfum' WHERE name LIKE 'Fragrant%'")
+    client.set_cookie("avoid_list", '%5B%22fragrance%22%5D')
+    shown = page(client, "/products?category=Moisturizers&type=gel&vs=cream")
+    assert product_total(shown) == 4 and "Lists:" in shown                       # the avoid list still tags rows
+    hidden = page(client, "/products?category=Moisturizers&type=gel&vs=cream&hide=1")
+    assert product_total(hidden) == 3 and "Fragrant Gel" not in hidden and "Fragrant Cream" not in hidden
+    assert "filter-chip" in hidden
+
+
+def test_the_detail_page_back_link_keeps_the_filter(client, market):
+    html = page(client, "/products?category=Moisturizers&type=gel&vs=cream")
+    detail = re.search(r'<a class="product-link" href="([^"]+)"', html).group(1).replace("&amp;", "&")
+    assert "type=gel" in detail and "vs=cream" in detail
+    back = re.search(r'href="(/products\?[^"]+)"', page(client, detail)).group(1).replace("&amp;", "&")
+    assert back == "/products?category=Moisturizers&type=gel&vs=cream"
+
+
+def test_the_filter_service_uses_the_comparison_rule(market):
+    f = services.type_filter("Moisturizers", "gel", "cream", market)
+    assert len(f["ids"]) == 20 and f["label"] == "gel moisturizers"
+    assert services.type_filter("Moisturizers", "gel", "gel", market) is None
+    assert services.type_filter("Nope", "gel", "cream", market) is None
+    assert services.type_filter("Moisturizers", "gel", "x", market) is None
+    assert len(services.type_filter("Moisturizers", "cream", "gel", market)["ids"]) == \
+        services.compare_types("Moisturizers", "cream", "gel", market)["a"]["products"]
+
+
+def test_the_products_page_with_a_filter_has_no_banned_wording(client, market):
+    html = page(client, "/products?category=Moisturizers&type=gel&vs=cream")
+    main = html.split('<section class="products-page">', 1)[1].split("</section>", 1)[0]
+    assert "Type: gel moisturizers" in main
+    assert not BANNED.search(text(re.sub(r'<table.*?</table>', "", main, flags=re.S)))
