@@ -14,7 +14,7 @@ from content import today_tips as today_content
 from content.compare_groups import GROUP_SEPARATOR, split_group
 from database.db import DB_PATH, get_db
 from database.services import (
-    MAIN_INGREDIENT_LABELS, TODAY_CONFIG, check_avoid_list, clean_avoid_terms, compare_products, escape_like, get_insights,
+    CATEGORIES_SQL, COUNT_SQL, MAIN_INGREDIENT_LABELS, PRODUCTS_SQL, TODAY_CONFIG, check_avoid_list, clean_avoid_terms, compare_products, escape_like, get_insights,
     get_ingredient_card, get_ingredient_glance, get_product_detail, get_today_conditions, get_usd_inr_rate, group_papers, inr_per_ml,
     inr_price, list_group_ingredients, list_groups, list_products_in_group,
     main_ingredients_of, search_research, split_ingredients_text,
@@ -26,33 +26,6 @@ SORT_OPTIONS = {
     "price": "Price (low to high)",
     "price_per_ml": "Price per ml (low to high)",
 }
-
-# All user input reaches SQLite as bound parameters. The sort key is bound too
-# (CASE picks the column), so no SQL text is ever built from the request.
-# The "category" filter and column are the cleaned compare group (content/compare_groups.py),
-# not the original `category` column, which only the detail page shows. A parent ("Sunscreen")
-# also matches its subcategories ("Sunscreen › Face"); a subcategory matches only itself.
-FILTER_SQL = """
-    FROM products
-    WHERE (:q = '' OR name LIKE :like ESCAPE '\\' OR brand LIKE :like ESCAPE '\\')
-      AND (:category = '' OR compare_group = :category OR compare_group LIKE :sub_prefix ESCAPE '\\')
-"""
-COUNT_SQL = "SELECT COUNT(*) " + FILTER_SQL
-PRODUCTS_SQL = (
-    "SELECT id, name, brand, compare_group, price, size_text, ingredients_text "
-    + FILTER_SQL
-    + """
-    ORDER BY
-        CASE WHEN :sort = 'price' THEN price END,
-        CASE WHEN :sort = 'price_per_ml' THEN price_per_ml END,
-        name COLLATE NOCASE,
-        id
-    LIMIT :limit OFFSET :offset
-"""
-)
-CATEGORIES_SQL = (
-    "SELECT DISTINCT compare_group FROM products WHERE compare_group IS NOT NULL ORDER BY compare_group"
-)
 
 app = Flask(__name__)
 app.config["DATABASE"] = DB_PATH  # tests point this at a temporary database
