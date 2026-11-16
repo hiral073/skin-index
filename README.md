@@ -62,7 +62,7 @@ python app.py
 pytest
 ```
 
-There are 1,627 tests. They never use the real network: every `live/` call is replaced by a fake. One of them, `tests/test_mcp_server.py::test_exactly_the_planned_tools_exist`, still lists 8 tools and fails now that `compare_types` is the ninth; it needs `compare_types` added to its `EXPECTED_TOOLS` set.
+There are 1,627 tests and all of them pass. They never use the real network: every `live/` call is replaced by a fake.
 
 ## My avoid list
 
@@ -75,9 +75,16 @@ On the Products page, open "Ingredients to avoid" in the filters, type an ingred
 
 ## MCP in this project
 
-Three MCP servers are used with Claude Code here: the project's own server, a read-only SQLite explorer, and the Playwright browser server. Only the first is part of the app.
+Four MCP servers were connected to Claude Code while building this project. **`skin-index` is the one I built; the other three are existing servers I connected.** Only `skin-index` is part of this repository's code.
 
-### 1. The Skin Index MCP server (the project's own)
+| Server | Built by | What it is used for |
+|---|---|---|
+| `skin-index` | me, in this repo (`mcp_server/server.py`) | The project's own server: 9 read-only tools over the app's data, including `compare_types` |
+| `skin-index-db` | existing server, connected | A read-only SQLite explorer for inspecting `skin_index.db` |
+| GitHub MCP | existing server, connected | Repository work (it is the hosted GitHub server, connected over HTTP) |
+| Playwright MCP | existing server, connected | A browser tool used for the UI redesign, the screenshots and the overflow checks |
+
+### `skin-index`: the server I built
 
 `mcp_server/server.py` (the official Python MCP SDK, FastMCP, stdio) lets Claude Code ask about the same data as the website. It only wraps the app's service functions, so it follows the same rules: it lists facts and numbers, never recommends a product, has no skin-type tool, and "none found" is never "safe". Every answer names its source, and bad input gives a plain error message. The product database is opened read-only. All nine tools are read-only; the one that saves anything is `find_studies`, which keeps PubMed paper lists for 24 hours in the `pubmed_searches` cache table, as the Ingredient Science page does.
 
@@ -107,7 +114,7 @@ Example questions to ask Claude Code:
 2. "Compare cream and gel moisturizers by price range and average rating." (`compare_types`)
 3. "Check product 1410 for fragrance and alcohol, then show the PubMed papers on niacinamide and today's UV in Pune." (`check_avoid_list`, `find_studies`, `get_weather`)
 
-### 2. A developer tool: a read-only SQLite explorer
+### `skin-index-db`: an existing read-only SQLite explorer
 
 [mcp-sqlite-insights](https://github.com/RayaanKaz/mcp-sqlite-insights) lets Claude Code answer questions about `skin_index.db` in plain English (for example "count products per compare_group"). The app does not use it. It is pinned to one commit and installed in its own virtual environment under `tools/`, which is not committed. SQLite opens the file read-only, so a write is refused. That covers this server only; Claude Code's own shell and edit tools can still reach the file.
 
@@ -122,10 +129,14 @@ claude mcp add --scope local --transport stdio skin-index-db -- tools/mcp-sqlite
 
 It has two tools, `inspect_schema` and `execute_query` (one SELECT at a time, at most 50 rows). Remove it with `claude mcp remove skin-index-db --scope local`, then delete `tools/mcp-sqlite-insights`. The first findings from using it are in [docs/data-audit.md](docs/data-audit.md).
 
-### 3. A developer tool: Playwright
+### Playwright MCP: an existing browser tool
 
-The Playwright MCP server (`npx @playwright/mcp@latest`) lets Claude Code open the running app in a browser. It was used to take the screenshots in `docs/screenshots` and to check the pages for horizontal overflow at 1280px and 390px. The app does not use it.
+The Playwright MCP server (`npx @playwright/mcp@latest`) lets Claude Code open the running app in a browser. It was used for the UI redesign, to take the screenshots in `docs/screenshots` and to check the pages for horizontal overflow at 1280px and 390px. The app does not use it.
 
 ```
 claude mcp add --scope local playwright -- npx @playwright/mcp@latest
 ```
+
+### GitHub MCP: an existing server for repository work
+
+The GitHub MCP server is GitHub's hosted server (`https://api.githubcopilot.com/mcp/`, HTTP), connected to Claude Code for repository work. Nothing in this repository depends on it.
