@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_group_options.html" import group_options %}
 {% from "_avoid.html" import filter_section, row_tag, based_on %}
-{% from "_cards.html" import brand_tile, stats %}
+{% from "_cards.html" import product_art, stats %}
 
 {% block title %}Products · Skin Index{% endblock %}
 
@@ -47,7 +47,7 @@
             <tbody>
                 {% for p in products %}
                 <tr>
-                    <td><div class="product-cell">{{ brand_tile(p['brand']) }}<div class="product-cell-text"><a class="product-link" href="{{ url_for('product_detail', id=p['id'], **detail_args) }}">{{ p['name'] }}</a> <a class="row-compare" href="{{ url_for('compare', a=p['id']) }}">Compare</a><span class="product-meta">{{ stats(p['rating'], p['loves_count']) }}</span>{{ row_tag(avoid_checks.get(p['id']), avoid) }}</div></div></td>
+                    <td><div class="product-cell">{{ product_art(p['compare_group']) }}<div class="product-cell-text"><a class="product-link" href="{{ url_for('product_detail', id=p['id'], **detail_args) }}">{{ p['name'] }}</a> <a class="row-compare" href="{{ url_for('compare', a=p['id']) }}">Compare</a><span class="product-meta">{{ stats(p['rating'], p['loves_count']) }}</span>{{ row_tag(avoid_checks.get(p['id']), avoid) }}</div></div></td>
                     <td>{{ p['brand'] }}</td>
                     <td>{{ p['compare_group'] or '—' }}</td>
                     <td>{{ p['size_text'] }}</td>

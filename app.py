@@ -91,7 +91,6 @@ def group_sections(entries, all_option=False):
 
 
 HOME_CATEGORIES = 8   # category tiles on the home page
-HOME_LOVED = 6        # products in the "Most loved" row
 
 
 @app.route("/")
@@ -105,12 +104,43 @@ def landing():
         {"name": name, "products": n}
         for name, n in sorted(by_parent.items(), key=lambda item: (-item[1], item[0].casefold()))[:HOME_CATEGORIES]
     ]
-    rate = get_usd_inr_rate(db)  # None: the cards show US dollars
-    loved = [
-        {**p, "price_inr": inr_price(p["price"], rate.rate) if rate and p["price"] is not None else None}
-        for p in get_insights(None, db)["loved_products"][:HOME_LOVED]
-    ]
-    return render_template("landing.html", categories=categories, loved=loved, rate=rate)
+    return render_template("landing.html", categories=categories, ingredients=home_ingredients(),
+                           today_strip=home_today_strip())
+
+
+# The home page's "Ingredients at a glance": the ingredients that have a card on the Ingredient Science
+# page, each with the card's own "What it is" line (no new text). The products link searches names only.
+HOME_INGREDIENT_NAMES = {"vitamin c": "Vitamin C", "hyaluronic acid": "Hyaluronic acid",
+                         "salicylic acid": "Salicylic acid", "ceramides": "Ceramides"}
+HOME_INGREDIENT_SEARCH = {"ceramides": "ceramide"}   # the word found in product names
+
+
+def home_ingredients():
+    cards = []
+    for card in cards_content.CARDS:
+        what = card.get("what")
+        if not what:
+            continue
+        key = card["key"]
+        cards.append({
+            "key": key, "name": HOME_INGREDIENT_NAMES.get(key, key.capitalize()), "what": what["text"],
+            "sources_url": url_for("science", q=card["names"][0], _anchor="glance"),
+            "products_url": url_for("products", q=HOME_INGREDIENT_SEARCH.get(key, card["names"][0])),
+        })
+    return cards
+
+
+def home_today_strip():
+    """UV now and humidity for the default place, or None (the strip is then left out quietly)."""
+    data = get_today_conditions()
+    if data["status"] != "ok":
+        return None
+    uv = data["uv"] or {}
+    if uv.get("now") is None and data["humidity"] is None:
+        return None
+    place = data["place"]
+    return {"place": ", ".join(p for p in (place["name"], place["region"], place["country"]) if p),
+            "uv": uv.get("now"), "uv_category": uv.get("now_category"), "humidity": data["humidity"]}
 
 
 def list_args(q, category, sort, page, hide=False):
@@ -560,6 +590,16 @@ def today():
     )
 
 
+def groups_of(ids, db_path):
+    """{product id: comparison group} for a few products (a product with no group maps to None)."""
+    if not ids:
+        return {}
+    with closing(get_db(db_path)) as conn:
+        return dict(conn.execute(
+            f"SELECT id, compare_group FROM products WHERE id IN ({','.join('?' * len(ids))})", ids
+        ).fetchall())
+
+
 @app.route("/insights")
 def insights():
     db_path = app.config["DATABASE"]
@@ -579,8 +619,10 @@ def insights():
     brands = [{**b, "bar": bar_percent(b["loves"], largest_loves)} for b in data["brands"]]
 
     largest_loved = max((p["loves_count"] for p in data["loved_products"]), default=0)
+    groups = groups_of([p["id"] for p in data["loved_products"]], db_path)   # the group picks each product's drawing
     loved_products = [
-        {**p, "price_inr": inr_price(p["price"], rate_value), "bar": bar_percent(p["loves_count"], largest_loved)}
+        {**p, "compare_group": groups.get(p["id"]), "price_inr": inr_price(p["price"], rate_value),
+         "bar": bar_percent(p["loves_count"], largest_loved)}
         for p in data["loved_products"]
     ]
 

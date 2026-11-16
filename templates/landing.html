@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_cards.html" import brand_tile, stats %}
 {% from "_icons.html" import search_icon, compare_icon, target_icon %}
 
 {% block title %}Skin Index — Understand What Is in Your Skincare{% endblock %}
@@ -14,10 +13,7 @@
             Look up a product, read its ingredients in the brand's own words,
             see its price in rupees and compare it with another.
         </p>
-        <form class="hero-search" action="{{ url_for('products') }}" method="get" role="search">
-            <input type="search" name="q" placeholder="Search by product or brand" aria-label="Search products by name or brand" autocomplete="off">
-            <button class="btn-primary" type="submit">Search products</button>
-        </form>
+        <a class="btn-primary hero-cta" href="{{ url_for('products') }}">Browse products</a>
     </div>
     <div class="hero-visual">
         <img class="hero-photo" src="{{ url_for('static', filename='img/hero-ibnu-ihza.jpg') }}" width="1600" height="914" alt="Clear gel textures and a cream in small dishes beside green leaves on a peach background" fetchpriority="high" decoding="async">
@@ -43,27 +39,33 @@
 </section>
 {% endif %}
 
-{% if loved %}
-<section class="section" aria-labelledby="loved-title">
+<div class="photo-band">
+    <img src="{{ url_for('static', filename='img/home-band-toa-heftiba.jpg') }}" width="1600" height="672" alt="" decoding="async">
+</div>
+
+{% if ingredients %}
+<section class="section" aria-labelledby="ingredients-title">
     <div class="section-inner">
         <div class="section-head">
-            <h2 class="section-heading" id="loved-title">Most loved on Sephora (by loves count)</h2>
-            <p class="section-sub">Products with the highest loves count in the data, in that order.</p>
+            <h2 class="section-heading" id="ingredients-title">Ingredients at a glance</h2>
+            <p class="section-sub">Short facts from named sources, with links. General information from the sources named. Not medical advice.</p>
         </div>
-        <ul class="product-grid">
-            {% for p in loved %}
-            <li><article class="product-card">
-                {{ brand_tile(p.brand) }}
-                <div class="product-card-body">
-                    <span class="product-card-brand">{{ p.brand }}</span>
-                    <h3 class="product-card-name"><a href="{{ url_for('product_detail', id=p.id) }}">{{ p.name }}</a></h3>
-                    <span class="product-card-price">{% if p.price_inr is not none %}≈ ₹{{ '{:,}'.format(p.price_inr) }}{% elif p.price is not none %}${{ '%.2f' | format(p.price) }}{% else %}<span class="not-available">Not available</span>{% endif %}</span>
-                    <div class="product-card-stats">{{ stats(p.rating, p.loves_count) }}</div>
-                </div>
-            </article></li>
+        <ul class="ingredient-grid">
+            {% for i in ingredients %}
+            <li class="ingredient-card">
+                <span class="ingredient-icon" style="--icon: url({{ url_for('static', filename='img/icons/ing-' ~ i.key.replace(' ', '-') ~ '.svg') }})" aria-hidden="true"></span>
+                <h3 class="ingredient-name">{{ i.name }}</h3>
+                <p class="ingredient-what">{{ i.what }}</p>
+                <p class="ingredient-links"><a href="{{ i.sources_url }}">Read the sources</a><a href="{{ i.products_url }}">Products with “{{ i.name | lower }}” in the name</a></p>
+            </li>
             {% endfor %}
         </ul>
-        <p class="data-note">Loves, ratings and reviews come from one retailer's site as of March 2023. They describe shopper activity, not quality.{% if rate %} Rupee prices are approximate, converted from US prices at 1 USD = ₹{{ '%.2f' | format(rate.rate) }} ({{ rate.rate_date }}).{% else %} Rupee prices are not available right now, so US dollar prices are shown.{% endif %}</p>
+        {% if today_strip %}
+        <p class="today-strip"><span class="today-strip-title">Today in {{ today_strip.place }}</span>
+            {% if today_strip.uv is not none %}<span class="today-strip-item">UV now <strong>{{ today_strip.uv }}</strong>{% if today_strip.uv_category %} ({{ today_strip.uv_category }}){% endif %}</span>{% endif %}
+            {% if today_strip.humidity is not none %}<span class="today-strip-item">Humidity <strong>{{ '%.0f' | format(today_strip.humidity) }}%</strong></span>{% endif %}
+            <a class="today-strip-link" href="{{ url_for('today') }}">See today's conditions</a></p>
+        {% endif %}
     </div>
 </section>
 {% endif %}
@@ -73,6 +75,8 @@
         <div class="section-head">
             <h2 class="section-heading" id="how-title">How Skin Index works</h2>
         </div>
+        <div class="how-layout">
+        <div class="how-text">
         <ol class="steps">
             <li class="step">
                 <span class="step-icon">{{ search_icon() }}</span>
@@ -94,6 +98,12 @@
             </li>
         </ol>
         <p class="how-note">Skin Index shows data and sources. It never tells you which product to buy.</p>
+        </div>
+        <div class="mosaic" aria-hidden="true">
+            <img src="{{ url_for('static', filename='img/mosaic-nataliya-melnychuk.jpg') }}" width="1000" height="1245" alt="" decoding="async">
+            <img src="{{ url_for('static', filename='img/mosaic-enecta.jpg') }}" width="1000" height="1250" alt="" decoding="async">
+        </div>
+        </div>
     </div>
 </section>
 
